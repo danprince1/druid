@@ -35,6 +35,7 @@ import org.apache.druid.security.basic.authorization.entity.BasicAuthorizerGroup
 import org.apache.druid.security.basic.authorization.entity.BasicAuthorizerPermission;
 import org.apache.druid.security.basic.authorization.entity.BasicAuthorizerRole;
 import org.apache.druid.security.basic.authorization.entity.BasicAuthorizerUser;
+import org.apache.druid.server.metrics.NoopServiceEmitter;
 import org.apache.druid.server.security.Action;
 import org.apache.druid.server.security.AuthorizerMapper;
 import org.apache.druid.server.security.Resource;
@@ -104,6 +105,8 @@ public class CoordinatorBasicAuthorizerMetadataStorageUpdaterTest
                     null,
                     null,
                     null,
+                    null,
+                    new NoopServiceEmitter(),
                     null
                 )
             )

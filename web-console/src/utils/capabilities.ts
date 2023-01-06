@@ -61,7 +61,10 @@ export class Capabilities {
     try {
       await Api.instance.post(
         '/druid/v2/sql?capabilities',
-        { query: 'SELECT 1337', context: { timeout: Capabilities.STATUS_TIMEOUT } },
+        {
+          query: 'SELECT 1337',
+          context: { brokerService: 'druid/hpdcBroker', timeout: Capabilities.STATUS_TIMEOUT },
+        },
         { timeout: Capabilities.STATUS_TIMEOUT },
       );
     } catch (e) {

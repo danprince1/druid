@@ -42,6 +42,7 @@ All the configuration parameters for the Kafka emitter are under `druid.emitter.
 |`druid.emitter.kafka.metric.topic`|Kafka topic name for emitter's target to emit service metric.|yes|none|
 |`druid.emitter.kafka.alert.topic`|Kafka topic name for emitter's target to emit alert.|yes|none|
 |`druid.emitter.kafka.request.topic`|Kafka topic name for emitter's target to emit request logs. If left empty then request logs will not be sent to the Kafka topic.|no|none|
+|`druid.emitter.kafka.audit.topic`|Kafka topic name for emitter's target to emit audit logs. If left empty then audit logs will not be emitted to Kafka.|no|none|
 |`druid.emitter.kafka.producer.config`|JSON formatted configuration which user want to set additional properties to Kafka producer.|no|none|
 |`druid.emitter.kafka.clusterName`|Optional value to specify name of your druid cluster. It can help make groups in your monitoring environment. |no|none|
 

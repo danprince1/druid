@@ -43,6 +43,7 @@ import org.skife.jdbi.v2.util.ByteArrayMapper;
 import org.skife.jdbi.v2.util.IntegerMapper;
 
 import javax.annotation.Nullable;
+
 import java.sql.Connection;
 import java.sql.DatabaseMetaData;
 import java.sql.ResultSet;
@@ -63,7 +64,7 @@ public abstract class SQLMetadataConnector implements MetadataStorageConnector
   static final int DEFAULT_MAX_TRIES = 10;
 
   private final Supplier<MetadataStorageConnectorConfig> config;
-  private final Supplier<MetadataStorageTablesConfig> tablesConfigSupplier;
+  protected final Supplier<MetadataStorageTablesConfig> tablesConfigSupplier;
   private final Predicate<Throwable> shouldRetry;
 
   public SQLMetadataConnector(
@@ -212,6 +213,41 @@ public abstract class SQLMetadataConnector implements MetadataStorageConnector
     }
   }
 
+  /**
+   * Execute the desired ALTER statement on the desired table
+   *
+   * @param tableName The name of the table being altered
+   * @param sql ALTER statment to be executed
+   */
+  private void alterTable(final String tableName, final Iterable<String> sql)
+  {
+    try {
+      retryWithHandle(
+          new HandleCallback<Void>()
+          {
+            @Override
+            public Void withHandle(Handle handle)
+            {
+              if (tableExists(handle, tableName)) {
+                final Batch batch = handle.createBatch();
+                for (String s : sql) {
+                  log.info("Altering table[%s], with command: %s", tableName, s);
+                  batch.add(s);
+                }
+                batch.execute();
+              } else {
+                log.info("Table[%s] doesn't exist", tableName);
+              }
+              return null;
+            }
+          }
+      );
+    }
+    catch (Exception e) {
+      log.warn(e, "Exception Altering table[%s]", tableName);
+    }
+  }
+
   public void createPendingSegmentsTable(final String tableName)
   {
     createTable(
@@ -281,6 +317,8 @@ public abstract class SQLMetadataConnector implements MetadataStorageConnector
                 + "  version VARCHAR(255) NOT NULL,\n"
                 + "  used BOOLEAN NOT NULL,\n"
                 + "  payload %2$s NOT NULL,\n"
+                + "  used_flag_last_updated VARCHAR(255) NOT NULL,\n"
+                + "  last_updated VARCHAR(255) NOT NULL,\n"
                 + "  PRIMARY KEY (id)\n"
                 + ")",
                 tableName, getPayloadType(), getQuoteString(), getCollation()
@@ -331,28 +369,11 @@ public abstract class SQLMetadataConnector implements MetadataStorageConnector
         )
     );
   }
-  
-  public boolean tableContainsColumn(Handle handle, String table, String column)
-  {
-    try {
-      DatabaseMetaData databaseMetaData = handle.getConnection().getMetaData();
-      ResultSet columns = databaseMetaData.getColumns(
-          null,
-          null,
-          table,
-          column
-      );
-      return columns.next();
-    }
-    catch (SQLException e) {
-      return false;
-    }
-  }
-  
+
   public void prepareTaskEntryTable(final String tableName)
   {
     createEntryTable(tableName);
-    alterEntryTable(tableName);
+    alterEntryTableAddTypeAndGroupId(tableName);
   }
 
   public void createEntryTable(final String tableName)
@@ -377,32 +398,23 @@ public abstract class SQLMetadataConnector implements MetadataStorageConnector
     );
   }
 
-  private void alterEntryTable(final String tableName)
+  private void alterEntryTableAddTypeAndGroupId(final String tableName)
   {
-    try {
-      retryWithHandle(
-          new HandleCallback<Void>()
-          {
-            @Override
-            public Void withHandle(Handle handle)
-            {
-              final Batch batch = handle.createBatch();
-              if (!tableContainsColumn(handle, tableName, "type")) {
-                log.info("Adding column: type to table[%s]", tableName);
-                batch.add(StringUtils.format("ALTER TABLE %1$s ADD COLUMN type VARCHAR(255)", tableName));
-              }
-              if (!tableContainsColumn(handle, tableName, "group_id")) {
-                log.info("Adding column: group_id to table[%s]", tableName);
-                batch.add(StringUtils.format("ALTER TABLE %1$s ADD COLUMN group_id VARCHAR(255)", tableName));
-              }
-              batch.execute();
-              return null;
-            }
-          }
-      );
+    ArrayList<String> statements = new ArrayList<>();
+    if (!tableHasColumn(tableName, "type")) {
+      log.info("Adding 'type' column to %s", tableName);
+      statements.add(StringUtils.format("ALTER TABLE %1$s ADD COLUMN type VARCHAR(255)", tableName));
+    } else {
+      log.info("%s already has 'type' column", tableName);
     }
-    catch (Exception e) {
-      log.warn(e, "Exception altering table");
+    if (!tableHasColumn(tableName, "group_id")) {
+      log.info("Adding 'group_id' column to %s", tableName);
+      statements.add(StringUtils.format("ALTER TABLE %1$s ADD COLUMN group_id VARCHAR(255)", tableName));
+    } else {
+      log.info("%s already has 'group_id' column", tableName);
+    }
+    if (!statements.isEmpty()) {
+      alterTable(tableName, statements);
     }
   }
 
@@ -462,6 +474,49 @@ public abstract class SQLMetadataConnector implements MetadataStorageConnector
             StringUtils.format("CREATE INDEX idx_%1$s_spec_id ON %1$s(spec_id)", tableName)
         )
     );
+  }
+
+  /**
+   * Adds the used_flag_last_updated column to the Druid segment table.
+   *
+   * This is public due to allow the UpdateTables cli tool to use for upgrade prep.
+   */
+  @Override
+  public void alterSegmentTableAddUsedFlagLastUpdated()
+  {
+    alterSegmentTableAddColumn("used_flag_last_updated");
+  }
+
+  /**
+   * Adds the last_updated column to the Druid segment table.
+   *
+   * This is public due to allow the UpdateTables cli tool to use for upgrade prep.
+   */
+  @Override
+  public void alterSegmentTableAddLastUpdated()
+  {
+    alterSegmentTableAddColumn("last_updated");
+  }
+
+  private void alterSegmentTableAddColumn(String column)
+  {
+    String tableName = tablesConfigSupplier.get().getSegmentsTable();
+    if (!tableHasColumn(tableName, column)) {
+      log.info("Adding %s column to %s", column, tableName);
+      alterTable(
+          tableName,
+          ImmutableList.of(
+              StringUtils.format(
+                  "ALTER TABLE %1$s \n"
+                  + "ADD %2$s varchar(255)",
+                  tableName,
+                  column
+              )
+          )
+      );
+    } else {
+      log.info("%s already has %s column", tableName, column);
+    }
   }
 
   @Override
@@ -525,7 +580,7 @@ public abstract class SQLMetadataConnector implements MetadataStorageConnector
           @Override
           public Boolean inTransaction(Handle handle, TransactionStatus transactionStatus)
           {
-            List<byte[]> currentValues = new ArrayList<byte[]>();
+            List<byte[]> currentValues = new ArrayList<>();
 
             // Compare
             for (MetadataCASUpdate update : updates) {
@@ -609,7 +664,12 @@ public abstract class SQLMetadataConnector implements MetadataStorageConnector
   {
     if (config.get().isCreateTables()) {
       createSegmentTable(tablesConfigSupplier.get().getSegmentsTable());
+      alterSegmentTableAddUsedFlagLastUpdated();
+      alterSegmentTableAddLastUpdated();
     }
+    // Called outside of the above conditional because we want to validate the table
+    // regardless of cluster configuration for creating tables.
+    validateSegmentTable();
   }
 
   @Override
@@ -822,6 +882,60 @@ public abstract class SQLMetadataConnector implements MetadataStorageConnector
     }
     catch (Exception e) {
       log.warn(e, "Exception while deleting records from table");
+    }
+  }
+
+  /**
+   * Interrogate table metadata and return true or false depending on the existance of the indicated column
+   *
+   * public visibility because DerbyConnector needs to override thanks to uppercase table and column names invalidating
+   * this implementation.
+   *
+   * @param tableName The table being interrogated
+   * @param columnName The column being looked for
+   * @return boolean indicating the existence of the column in question
+   */
+  public boolean tableHasColumn(String tableName, String columnName)
+  {
+    return getDBI().withHandle(
+        new HandleCallback<Boolean>()
+        {
+          @Override
+          public Boolean withHandle(Handle handle)
+          {
+            try {
+              if (tableExists(handle, tableName)) {
+                DatabaseMetaData dbMetaData = handle.getConnection().getMetaData();
+                ResultSet columns = dbMetaData.getColumns(
+                    null,
+                    null,
+                    tableName,
+                    columnName
+                );
+                return columns.next();
+              } else {
+                return false;
+              }
+            }
+            catch (SQLException e) {
+              return false;
+            }
+          }
+        }
+    );
+  }
+
+  /**
+   * Ensure that the segment table has the proper schema required to run Druid properly.
+   *
+   * Throws RuntimeException if a required column does not exist. There is no recovering from an invalid schema,
+   * the program should crash.
+   */
+  private void validateSegmentTable()
+  {
+    if (!tableHasColumn(tablesConfigSupplier.get().getSegmentsTable(), "used_flag_last_updated")
+        || !tableHasColumn(tablesConfigSupplier.get().getSegmentsTable(), "last_updated")) {
+      throw new RuntimeException("Invalid Segment Table Schema! No used_flag_last_updated or last_updated column!");
     }
   }
 }

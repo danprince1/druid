@@ -24,6 +24,7 @@ import com.google.inject.Inject;
 import org.apache.commons.io.IOUtils;
 import org.apache.druid.guice.annotations.Json;
 import org.apache.druid.guice.annotations.Smile;
+import org.apache.druid.indexer.partitions.DynamicPartitionsSpec;
 import org.apache.druid.java.util.common.ISE;
 import org.apache.druid.java.util.common.Intervals;
 import org.apache.druid.java.util.common.StringUtils;
@@ -117,6 +118,27 @@ public abstract class AbstractIndexerTest
         "%%SEGMENT_AVAIL_TIMEOUT_MILLIS%%",
         jsonMapper.writeValueAsString("0")
     );
+    taskSpec = StringUtils.replace(
+        taskSpec,
+        "%%PARTITIONS_SPEC%%",
+        jsonMapper.writeValueAsString(new DynamicPartitionsSpec(3, 5000L))
+    );
+    taskSpec = StringUtils.replace(
+        taskSpec,
+        "%%FORCE_GUARANTEED_ROLLUP%%",
+        jsonMapper.writeValueAsString(false)
+    );
+    taskSpec = StringUtils.replace(
+        taskSpec,
+        "%%MAX_INTERVALS_INGESTED%%",
+        jsonMapper.writeValueAsString(Integer.MAX_VALUE)
+    );
+    taskSpec = StringUtils.replace(
+        taskSpec,
+        "%%MAX_SEGMENTS_INGESTED%%",
+        jsonMapper.writeValueAsString(Integer.MAX_VALUE)
+    );
+
     final String taskID = indexer.submitTask(taskSpec);
     LOG.info("TaskID for loading index task %s", taskID);
 

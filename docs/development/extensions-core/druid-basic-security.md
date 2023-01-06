@@ -200,6 +200,7 @@ The examples in the rest of this article use `MyBasicMetadataAuthorizer` or `MyB
 |`druid.auth.authorizer.MyBasicLDAPAuthorizer.initialAdminGroupMapping`|The initial admin group mapping with role defined in initialAdminRole property if specified, otherwise the default admin role will be assigned. The name of this initial admin group mapping will be set to adminGroupMapping|null|No|
 |`druid.auth.authorizer.MyBasicLDAPAuthorizer.roleProvider.type`|The type of role provider (ldap) to authorize requests credentials.|metadata|No
 |`druid.auth.authorizer.MyBasicLDAPAuthorizer.roleProvider.groupFilters`|Array of LDAP group filters used to filter out the allowed set of groups returned from LDAP search. Filters can be begin with *, or end with ,* to provide configurational flexibility to limit or filter allowed set of groups available to LDAP Authorizer.|null|No|
+|`druid.auth.authorizer.MyBasicLDAPAuthorizer.groupMappingGroupPatternRegex`|Regex that all group pattern create actions are checked against. If the specified pattern doesn't match the regex, the mapping will not be created.|null|no|
 
 ## Usage
 

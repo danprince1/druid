@@ -68,6 +68,7 @@ import org.apache.druid.indexing.overlord.sampler.InputSourceSampler;
 import org.apache.druid.java.util.common.IAE;
 import org.apache.druid.java.util.common.ISE;
 import org.apache.druid.java.util.common.JodaUtils;
+import org.apache.druid.java.util.common.RE;
 import org.apache.druid.java.util.common.StringUtils;
 import org.apache.druid.java.util.common.UOE;
 import org.apache.druid.java.util.common.granularity.Granularity;
@@ -497,15 +498,38 @@ public class IndexTask extends AbstractBatchIndexTask implements ChatHandler
       // Initialize maxRowsPerSegment and maxTotalRows lazily
       final IndexTuningConfig tuningConfig = ingestionSchema.tuningConfig;
       final PartitionsSpec partitionsSpec = tuningConfig.getGivenOrDefaultPartitionsSpec();
+      final boolean determinePartitions = partitionsSpec.needsDeterminePartitions(false);
       final PartitionAnalysis partitionAnalysis = determineShardSpecs(
           toolbox,
           inputSource,
           tmpDir,
           partitionsSpec
       );
+
+      if (determinePartitions && ingestionSchema.getTuningConfig().getMaxSegmentsIngested() < TuningConfig.DEFAULT_MAX_SEGMENTS_INGESTED) {
+        // Determine if the discovered partition count breaches the maxSegmentsIngested threshold in the tuningConfig
+        errorMsg = StringUtils.format("This ingestion task was determined to have breached the limit of [%d] segments ingested. "
+                                      + "Total segments that would be ingested by this task: [%d]",
+                                      ingestionSchema.getTuningConfig().getMaxSegmentsIngested(),
+                                      partitionAnalysis.getAggregateSegmentCount());
+        if (partitionAnalysis.getAggregateSegmentCount() > ingestionSchema.getTuningConfig().getMaxSegmentsIngested()) {
+          log.error(errorMsg);
+          throw new RE(errorMsg);
+        }
+      }
+
       final List<Interval> allocateIntervals = new ArrayList<>(partitionAnalysis.getAllIntervalsToIndex());
       final DataSchema dataSchema;
       if (determineIntervals) {
+        if (partitionAnalysis.getNumTimePartitions() > ingestionSchema.getTuningConfig().getMaxIntervalsIngested()) {
+          // Fail task for breaching maxIntervalsIngested threshold in the tuningConfig
+          errorMsg = StringUtils.format("This ingestion task was determined to have breached the limit of [%d] intervals ingested. "
+                                        + "Total intervals that would be ingested by this task: [%d]",
+                                        ingestionSchema.getTuningConfig().getMaxIntervalsIngested(),
+                                        partitionAnalysis.getNumTimePartitions());
+          log.error(errorMsg);
+          throw new RE(errorMsg);
+        }
         final boolean gotLocks = determineLockGranularityAndTryLock(
             toolbox.getTaskActionClient(), allocateIntervals, ingestionSchema.getIOConfig()
         );
@@ -533,7 +557,9 @@ public class IndexTask extends AbstractBatchIndexTask implements ChatHandler
     }
     catch (Exception e) {
       log.error(e, "Encountered exception in %s.", ingestionState);
-      errorMsg = Throwables.getStackTraceAsString(e);
+      if (null == errorMsg) {
+        errorMsg = Throwables.getStackTraceAsString(e);
+      }
       toolbox.getTaskReportFileWriter().write(getId(), getTaskCompletionReports());
       return TaskStatus.failure(
           getId(),
@@ -1261,6 +1287,8 @@ public class IndexTask extends AbstractBatchIndexTask implements ChatHandler
     private final int maxParseExceptions;
     private final int maxSavedParseExceptions;
     private final long awaitSegmentAvailabilityTimeoutMillis;
+    private final int maxIntervalsIngested;
+    private final int maxSegmentsIngested;
 
     @Nullable
     private final SegmentWriteOutMediumFactory segmentWriteOutMediumFactory;
@@ -1331,7 +1359,9 @@ public class IndexTask extends AbstractBatchIndexTask implements ChatHandler
         @JsonProperty("maxParseExceptions") @Nullable Integer maxParseExceptions,
         @JsonProperty("maxSavedParseExceptions") @Nullable Integer maxSavedParseExceptions,
         @JsonProperty("maxColumnsToMerge") @Nullable Integer maxColumnsToMerge,
-        @JsonProperty("awaitSegmentAvailabilityTimeoutMillis") @Nullable Long awaitSegmentAvailabilityTimeoutMillis
+        @JsonProperty("awaitSegmentAvailabilityTimeoutMillis") @Nullable Long awaitSegmentAvailabilityTimeoutMillis,
+        @JsonProperty("maxIntervalsIngested") @Nullable Integer maxIntervalsIngested,
+        @JsonProperty("maxSegmentsIngested") @Nullable Integer maxSegmentsIngested
     )
     {
       this(
@@ -1359,7 +1389,9 @@ public class IndexTask extends AbstractBatchIndexTask implements ChatHandler
           maxParseExceptions,
           maxSavedParseExceptions,
           maxColumnsToMerge,
-          awaitSegmentAvailabilityTimeoutMillis
+          awaitSegmentAvailabilityTimeoutMillis,
+          maxIntervalsIngested,
+          maxSegmentsIngested
       );
 
       Preconditions.checkArgument(
@@ -1370,7 +1402,28 @@ public class IndexTask extends AbstractBatchIndexTask implements ChatHandler
 
     private IndexTuningConfig()
     {
-      this(null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null);
+      this(
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null
+      );
     }
 
     private IndexTuningConfig(
@@ -1391,7 +1444,9 @@ public class IndexTask extends AbstractBatchIndexTask implements ChatHandler
         @Nullable Integer maxParseExceptions,
         @Nullable Integer maxSavedParseExceptions,
         @Nullable Integer maxColumnsToMerge,
-        @Nullable Long awaitSegmentAvailabilityTimeoutMillis
+        @Nullable Long awaitSegmentAvailabilityTimeoutMillis,
+        @Nullable Integer maxIntervalsIngested,
+        @Nullable Integer maxSegmentsIngested
     )
     {
       this.appendableIndexSpec = appendableIndexSpec == null ? DEFAULT_APPENDABLE_INDEX : appendableIndexSpec;
@@ -1437,6 +1492,17 @@ public class IndexTask extends AbstractBatchIndexTask implements ChatHandler
       } else {
         this.awaitSegmentAvailabilityTimeoutMillis = awaitSegmentAvailabilityTimeoutMillis;
       }
+
+      if (maxIntervalsIngested == null) {
+        this.maxIntervalsIngested = DEFAULT_MAX_INTERVALS_INGESTED;
+      } else {
+        this.maxIntervalsIngested = maxIntervalsIngested;
+      }
+      if (maxSegmentsIngested == null) {
+        this.maxSegmentsIngested = DEFAULT_MAX_SEGMENTS_INGESTED;
+      } else {
+        this.maxSegmentsIngested = maxSegmentsIngested;
+      }
     }
 
     @Override
@@ -1460,7 +1526,9 @@ public class IndexTask extends AbstractBatchIndexTask implements ChatHandler
           maxParseExceptions,
           maxSavedParseExceptions,
           maxColumnsToMerge,
-          awaitSegmentAvailabilityTimeoutMillis
+          awaitSegmentAvailabilityTimeoutMillis,
+          maxIntervalsIngested,
+          maxSegmentsIngested
       );
     }
 
@@ -1484,7 +1552,9 @@ public class IndexTask extends AbstractBatchIndexTask implements ChatHandler
           maxParseExceptions,
           maxSavedParseExceptions,
           maxColumnsToMerge,
-          awaitSegmentAvailabilityTimeoutMillis
+          awaitSegmentAvailabilityTimeoutMillis,
+          maxIntervalsIngested,
+          maxSegmentsIngested
       );
     }
 
@@ -1673,6 +1743,18 @@ public class IndexTask extends AbstractBatchIndexTask implements ChatHandler
       return awaitSegmentAvailabilityTimeoutMillis;
     }
 
+    @JsonProperty
+    public int getMaxIntervalsIngested()
+    {
+      return maxIntervalsIngested;
+    }
+
+    @JsonProperty
+    public int getMaxSegmentsIngested()
+    {
+      return maxSegmentsIngested;
+    }
+
     @Override
     public boolean equals(Object o)
     {
@@ -1700,7 +1782,9 @@ public class IndexTask extends AbstractBatchIndexTask implements ChatHandler
              Objects.equals(indexSpecForIntermediatePersists, that.indexSpecForIntermediatePersists) &&
              Objects.equals(basePersistDirectory, that.basePersistDirectory) &&
              Objects.equals(segmentWriteOutMediumFactory, that.segmentWriteOutMediumFactory) &&
-             Objects.equals(awaitSegmentAvailabilityTimeoutMillis, that.awaitSegmentAvailabilityTimeoutMillis);
+             Objects.equals(awaitSegmentAvailabilityTimeoutMillis, that.awaitSegmentAvailabilityTimeoutMillis) &&
+             maxIntervalsIngested == that.maxIntervalsIngested &&
+             maxSegmentsIngested == that.maxSegmentsIngested;
     }
 
     @Override
@@ -1724,7 +1808,9 @@ public class IndexTask extends AbstractBatchIndexTask implements ChatHandler
           maxParseExceptions,
           maxSavedParseExceptions,
           segmentWriteOutMediumFactory,
-          awaitSegmentAvailabilityTimeoutMillis
+          awaitSegmentAvailabilityTimeoutMillis,
+          maxIntervalsIngested,
+          maxSegmentsIngested
       );
     }
 
@@ -1749,6 +1835,8 @@ public class IndexTask extends AbstractBatchIndexTask implements ChatHandler
              ", maxSavedParseExceptions=" + maxSavedParseExceptions +
              ", segmentWriteOutMediumFactory=" + segmentWriteOutMediumFactory +
              ", awaitSegmentAvailabilityTimeoutMillis=" + awaitSegmentAvailabilityTimeoutMillis +
+             ", maxIntervalsIngested=" + maxIntervalsIngested +
+             ", maxSegmentsIngested=" + maxSegmentsIngested +
              '}';
     }
   }

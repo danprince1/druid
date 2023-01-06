@@ -31,6 +31,7 @@ import org.apache.druid.security.basic.authentication.entity.BasicAuthenticatorC
 import org.apache.druid.security.basic.authentication.entity.BasicAuthenticatorCredentials;
 import org.apache.druid.security.basic.authentication.entity.BasicAuthenticatorUser;
 import org.apache.druid.security.basic.authentication.validator.CredentialsValidator;
+import org.apache.druid.server.metrics.NoopServiceEmitter;
 import org.apache.druid.server.security.AuthConfig;
 import org.apache.druid.server.security.AuthenticationResult;
 import org.easymock.EasyMock;
@@ -46,6 +47,8 @@ import java.util.Map;
 
 public class BasicHTTPAuthenticatorTest
 {
+  private static final String AUTHENTICATOR_NAME = "basic";
+
   public static BasicAuthenticatorCredentials USER_A_CREDENTIALS = new BasicAuthenticatorCredentials(
       new BasicAuthenticatorCredentialUpdate("helloworld", 20)
   );
@@ -71,17 +74,48 @@ public class BasicHTTPAuthenticatorTest
 
   public static BasicHTTPAuthenticator AUTHENTICATOR = new BasicHTTPAuthenticator(
       CACHE_MANAGER_PROVIDER,
-      "basic",
+      AUTHENTICATOR_NAME,
       "basic",
       new DefaultPasswordProvider("a"),
       new DefaultPasswordProvider("a"),
       false,
       null, null,
       false,
-      null
+      null,
+      new NoopServiceEmitter()
   );
 
+  @Test
+  public void testAuthenticatorHintMismatch() throws IOException, ServletException
+  {
+    String authenticatorHint = "otherAuthenticator";
 
+    HttpServletRequest req = EasyMock.createMock(HttpServletRequest.class);
+    EasyMock.expect(req.getHeader("X-DRUID-AUTHENTICATOR-HINT")).andReturn(authenticatorHint);
+    EasyMock.replay(req);
+
+    HttpServletResponse resp = EasyMock.createMock(HttpServletResponse.class);
+    EasyMock.replay(resp);
+
+    FilterChain filterChain = EasyMock.createMock(FilterChain.class);
+    filterChain.doFilter(req, resp);
+    EasyMock.expectLastCall().times(1);
+    EasyMock.replay(filterChain);
+
+    Filter authenticatorFilter = AUTHENTICATOR.getFilter();
+    authenticatorFilter.doFilter(req, resp, filterChain);
+
+    EasyMock.verify(req, resp, filterChain);
+  }
+
+  /**
+   * Confirm handling of a good credential pair.
+   *
+   * As an asisde, also validates behavior of a matching X-DRUID-AUTHENTICATOR-HINT header.
+   *
+   * @throws IOException
+   * @throws ServletException
+   */
   @Test
   public void testGoodPassword() throws IOException, ServletException
   {
@@ -90,6 +124,7 @@ public class BasicHTTPAuthenticatorTest
 
     HttpServletRequest req = EasyMock.createMock(HttpServletRequest.class);
     EasyMock.expect(req.getHeader("Authorization")).andReturn(header);
+    EasyMock.expect(req.getHeader("X-DRUID-AUTHENTICATOR-HINT")).andReturn(AUTHENTICATOR_NAME);
     req.setAttribute(
         AuthConfig.DRUID_AUTHENTICATION_RESULT,
         new AuthenticationResult("userA", "basic", "basic", null)
@@ -124,7 +159,8 @@ public class BasicHTTPAuthenticatorTest
         false,
         null, null,
         false,
-        validator
+        validator,
+        new NoopServiceEmitter()
     );
 
     String header = StringUtils.utf8Base64("userA:helloworld");
@@ -142,6 +178,7 @@ public class BasicHTTPAuthenticatorTest
 
     HttpServletRequest req = EasyMock.createMock(HttpServletRequest.class);
     EasyMock.expect(req.getHeader("Authorization")).andReturn(header);
+    EasyMock.expect(req.getHeader("X-DRUID-AUTHENTICATOR-HINT")).andReturn(null);
     req.setAttribute(
         AuthConfig.DRUID_AUTHENTICATION_RESULT,
         new AuthenticationResult("userA", "basic", "basic", null)
@@ -171,6 +208,7 @@ public class BasicHTTPAuthenticatorTest
 
     HttpServletRequest req = EasyMock.createMock(HttpServletRequest.class);
     EasyMock.expect(req.getHeader("Authorization")).andReturn(header);
+    EasyMock.expect(req.getHeader("X-DRUID-AUTHENTICATOR-HINT")).andReturn(null);
     EasyMock.replay(req);
 
     HttpServletResponse resp = EasyMock.createMock(HttpServletResponse.class);
@@ -200,7 +238,8 @@ public class BasicHTTPAuthenticatorTest
         false,
         null, null,
         true,
-        validator
+        validator,
+        new NoopServiceEmitter()
     );
     String header = StringUtils.utf8Base64("userA:badpassword");
     header = StringUtils.format("Basic %s", header);
@@ -217,6 +256,7 @@ public class BasicHTTPAuthenticatorTest
 
     HttpServletRequest req = EasyMock.createMock(HttpServletRequest.class);
     EasyMock.expect(req.getHeader("Authorization")).andReturn(header);
+    EasyMock.expect(req.getHeader("X-DRUID-AUTHENTICATOR-HINT")).andReturn(null);
     EasyMock.replay(req);
 
     HttpServletResponse resp = EasyMock.createMock(HttpServletResponse.class);
@@ -242,6 +282,7 @@ public class BasicHTTPAuthenticatorTest
 
     HttpServletRequest req = EasyMock.createMock(HttpServletRequest.class);
     EasyMock.expect(req.getHeader("Authorization")).andReturn(header);
+    EasyMock.expect(req.getHeader("X-DRUID-AUTHENTICATOR-HINT")).andReturn(null);
     EasyMock.replay(req);
 
     HttpServletResponse resp = EasyMock.createMock(HttpServletResponse.class);
@@ -271,13 +312,15 @@ public class BasicHTTPAuthenticatorTest
         false,
         null, null,
         true,
-        validator
+        validator,
+        new NoopServiceEmitter()
     );
     String header = StringUtils.utf8Base64("userB:helloworld");
     header = StringUtils.format("Basic %s", header);
 
     HttpServletRequest req = EasyMock.createMock(HttpServletRequest.class);
     EasyMock.expect(req.getHeader("Authorization")).andReturn(header);
+    EasyMock.expect(req.getHeader("X-DRUID-AUTHENTICATOR-HINT")).andReturn(null);
     EasyMock.replay(req);
 
     EasyMock
@@ -311,6 +354,7 @@ public class BasicHTTPAuthenticatorTest
 
     HttpServletRequest req = EasyMock.createMock(HttpServletRequest.class);
     EasyMock.expect(req.getHeader("Authorization")).andReturn(header);
+    EasyMock.expect(req.getHeader("X-DRUID-AUTHENTICATOR-HINT")).andReturn(null);
     EasyMock.replay(req);
 
     HttpServletResponse resp = EasyMock.createMock(HttpServletResponse.class);
@@ -334,6 +378,7 @@ public class BasicHTTPAuthenticatorTest
 
     HttpServletRequest req = EasyMock.createMock(HttpServletRequest.class);
     EasyMock.expect(req.getHeader("Authorization")).andReturn(header);
+    EasyMock.expect(req.getHeader("X-DRUID-AUTHENTICATOR-HINT")).andReturn(null);
     EasyMock.replay(req);
 
     HttpServletResponse resp = EasyMock.createMock(HttpServletResponse.class);
@@ -358,6 +403,7 @@ public class BasicHTTPAuthenticatorTest
 
     HttpServletRequest req = EasyMock.createMock(HttpServletRequest.class);
     EasyMock.expect(req.getHeader("Authorization")).andReturn(header);
+    EasyMock.expect(req.getHeader("X-DRUID-AUTHENTICATOR-HINT")).andReturn(null);
     EasyMock.replay(req);
 
     HttpServletResponse resp = EasyMock.createMock(HttpServletResponse.class);
@@ -380,6 +426,7 @@ public class BasicHTTPAuthenticatorTest
   {
     HttpServletRequest req = EasyMock.createMock(HttpServletRequest.class);
     EasyMock.expect(req.getHeader("Authorization")).andReturn(null);
+    EasyMock.expect(req.getHeader("X-DRUID-AUTHENTICATOR-HINT")).andReturn(null);
     EasyMock.replay(req);
 
     HttpServletResponse resp = EasyMock.createMock(HttpServletResponse.class);

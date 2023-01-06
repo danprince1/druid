@@ -28,6 +28,7 @@ import org.apache.druid.indexing.overlord.IndexerMetadataStorageCoordinator;
 import org.apache.druid.indexing.overlord.TaskLockbox;
 import org.apache.druid.indexing.overlord.TaskStorage;
 import org.apache.druid.indexing.overlord.supervisor.SupervisorManager;
+import org.apache.druid.metadata.FullDataSourcesSnapshotFactory;
 import org.apache.druid.metadata.IndexerSQLMetadataStorageCoordinator;
 import org.apache.druid.metadata.MetadataStorageConnectorConfig;
 import org.apache.druid.metadata.MetadataStorageTablesConfig;
@@ -97,7 +98,12 @@ public class TaskActionTestKit extends ExternalResource
         objectMapper,
         Suppliers.ofInstance(new SegmentsMetadataManagerConfig()),
         Suppliers.ofInstance(metadataStorageTablesConfig),
-        testDerbyConnector
+        testDerbyConnector,
+        new FullDataSourcesSnapshotFactory(
+            Suppliers.ofInstance(metadataStorageTablesConfig),
+            objectMapper,
+            testDerbyConnector
+        )
     );
     taskActionToolbox = new TaskActionToolbox(
         taskLockbox,

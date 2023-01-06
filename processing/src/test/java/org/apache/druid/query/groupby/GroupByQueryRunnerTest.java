@@ -756,8 +756,14 @@ public class GroupByQueryRunnerTest extends InitializedNullHandlingTest
         query,
         serviceEmitter
     );
-    Assert.assertEquals(1, serviceEmitter.getEvents().size());
-    Assert.assertEquals(vectorize, serviceEmitter.getEvents().get(0).toMap().getOrDefault("vectorized", null));
+    /*
+    We cannot assert this because we have disabled query/wait/time metric in or fork
+    Assert.assertEquals(1, stubServiceEmitter.getEvents().size());
+    Assert.assertEquals(
+        vectorize,
+        stubServiceEmitter.getEvents().get(0).toMap().getOrDefault("vectorized", null)
+    );
+     */
     TestHelper.assertExpectedObjects(expectedResults, results, "groupBy");
   }
 

@@ -18,5 +18,21 @@
 
 window.consoleConfig = {
   exampleManifestsUrl: 'https://druid.apache.org/data/example-manifests-v2.tsv',
+  defaultQueryContext: {
+    priority: 20,
+    greenfield: {
+      user_id: 'DRUID_ROUTER_CONSOLE',
+      workload_type: 'DRUID_ROUTER_CONSOLE',
+    },
+    brokerService: 'druid/hpdcBroker',
+  },
+  mandatoryQueryContext: {
+    priority: 20,
+    greenfield: {
+      user_id: 'DRUID_ROUTER_CONSOLE',
+      workload_type: 'DRUID_ROUTER_CONSOLE',
+    },
+    brokerService: 'druid/hpdcBroker',
+  },
   /* future configs may go here */
 };

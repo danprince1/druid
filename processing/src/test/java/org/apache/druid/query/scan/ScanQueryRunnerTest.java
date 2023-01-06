@@ -230,8 +230,14 @@ public class ScanQueryRunnerTest extends InitializedNullHandlingTest
         0,
         3
     );
+    /*
+    We cannot assert this because we have disabled query/wait/time metric in or fork
     Assert.assertEquals(1, stubServiceEmitter.getEvents().size());
-    Assert.assertEquals(false, stubServiceEmitter.getEvents().get(0).toMap().getOrDefault("vectorized", null));
+    Assert.assertEquals(
+        vectorize,
+        stubServiceEmitter.getEvents().get(0).toMap().getOrDefault("vectorized", null)
+    );
+     */
     verify(expectedResults, populateNullColumnAtLastForQueryableIndexCase(results, "null_column"));
   }
 

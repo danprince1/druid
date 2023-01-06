@@ -49,6 +49,7 @@ import org.apache.druid.java.util.common.Pair;
 import org.apache.druid.java.util.common.StringUtils;
 import org.apache.druid.java.util.emitter.EmittingLogger;
 import org.apache.druid.metadata.EntryExistsException;
+import org.apache.druid.metadata.FullDataSourcesSnapshotFactory;
 import org.apache.druid.metadata.IndexerSQLMetadataStorageCoordinator;
 import org.apache.druid.metadata.SQLMetadataConnector;
 import org.apache.druid.metadata.SegmentsMetadataManager;
@@ -120,7 +121,12 @@ public abstract class IngestionTestBase extends InitializedNullHandlingTest
         objectMapper,
         SegmentsMetadataManagerConfig::new,
         derbyConnectorRule.metadataTablesConfigSupplier(),
-        derbyConnectorRule.getConnector()
+        derbyConnectorRule.getConnector(),
+        new FullDataSourcesSnapshotFactory(
+            derbyConnectorRule.metadataTablesConfigSupplier(),
+            objectMapper,
+            derbyConnectorRule.getConnector()
+        )
     );
     lockbox = new TaskLockbox(taskStorage, storageCoordinator);
     segmentCacheManagerFactory = new SegmentCacheManagerFactory(getObjectMapper());

@@ -295,6 +295,12 @@ export async function queryDruidRune(runeQuery: Record<string, any>): Promise<an
 export async function queryDruidSql<T = any>(sqlQueryPayload: Record<string, any>): Promise<T[]> {
   let sqlResultResp: AxiosResponse;
   try {
+    if (sqlQueryPayload.context !== undefined) {
+      sqlQueryPayload['context']['brokerService'] = 'druid/hdpcBroker';
+    } else {
+      const context = { brokerService: 'druid/hpdcBroker' };
+      sqlQueryPayload['context'] = context;
+    }
     sqlResultResp = await Api.instance.post('/druid/v2/sql', sqlQueryPayload);
   } catch (e) {
     throw new Error(getDruidErrorMessage(e));

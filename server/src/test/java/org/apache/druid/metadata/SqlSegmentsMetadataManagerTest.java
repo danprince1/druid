@@ -27,16 +27,22 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterables;
 import org.apache.druid.client.DataSourcesSnapshot;
+import org.apache.druid.client.DataSourcesSnapshotFactory;
 import org.apache.druid.client.ImmutableDruidDataSource;
 import org.apache.druid.java.util.common.DateTimes;
 import org.apache.druid.java.util.common.Intervals;
 import org.apache.druid.java.util.common.StringUtils;
 import org.apache.druid.java.util.emitter.EmittingLogger;
+import org.apache.druid.metadata.SegmentsMetadataManagerConfig.PollingType;
 import org.apache.druid.segment.TestHelper;
+import org.apache.druid.server.coordinator.DruidCoordinatorConfig;
+import org.apache.druid.server.coordinator.TestDruidCoordinatorConfig;
 import org.apache.druid.server.metrics.NoopServiceEmitter;
 import org.apache.druid.timeline.DataSegment;
 import org.apache.druid.timeline.SegmentId;
 import org.apache.druid.timeline.partition.NoneShardSpec;
+import org.joda.time.DateTime;
+import org.joda.time.Duration;
 import org.joda.time.Interval;
 import org.joda.time.Period;
 import org.junit.After;
@@ -44,14 +50,31 @@ import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
+import org.junit.runner.RunWith;
+import org.junit.runners.Parameterized;
+import org.skife.jdbi.v2.Handle;
+import org.skife.jdbi.v2.tweak.HandleCallback;
 
+import javax.annotation.Nonnull;
 import java.io.IOException;
+import java.util.Arrays;
+import java.util.Collection;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 
 
+@RunWith(Parameterized.class)
 public class SqlSegmentsMetadataManagerTest
 {
+  @Parameterized.Parameters
+  public static Collection<PollingType> params()
+  {
+    return Arrays.asList(PollingType.values());
+  }
+
   private static DataSegment createSegment(
       String dataSource,
       String interval,
@@ -100,9 +123,32 @@ public class SqlSegmentsMetadataManagerTest
       0
   );
 
+  private final PollingType pollingType;
+
+  public SqlSegmentsMetadataManagerTest(PollingType pollingType)
+  {
+    this.pollingType = pollingType;
+  }
+
   private void publish(DataSegment segment, boolean used) throws IOException
   {
+    DateTime now = DateTimes.nowUtc();
+    publish(segment, used, now, now);
+  }
+
+  private void publish(DataSegment segment, boolean used, DateTime usedFlagLastUpdated, DateTime lastUpdated) throws IOException
+  {
     boolean partitioned = !(segment.getShardSpec() instanceof NoneShardSpec);
+
+    String usedFlagLastUpdatedStr = null;
+    if (null != usedFlagLastUpdated) {
+      usedFlagLastUpdatedStr = usedFlagLastUpdated.toString();
+    }
+    String lastUpdatedStr = null;
+    if (null != lastUpdated) {
+      lastUpdatedStr = lastUpdated.toString();
+    }
+
     publisher.publishSegment(
         segment.getId().toString(),
         segment.getDataSource(),
@@ -112,7 +158,9 @@ public class SqlSegmentsMetadataManagerTest
         partitioned,
         segment.getVersion(),
         used,
-        jsonMapper.writeValueAsBytes(segment)
+        jsonMapper.writeValueAsBytes(segment),
+        usedFlagLastUpdatedStr,
+        lastUpdatedStr
     );
   }
 
@@ -122,11 +170,14 @@ public class SqlSegmentsMetadataManagerTest
     TestDerbyConnector connector = derbyConnectorRule.getConnector();
     SegmentsMetadataManagerConfig config = new SegmentsMetadataManagerConfig();
     config.setPollDuration(Period.seconds(3));
+    DruidCoordinatorConfig coordinatorConfig = new TestDruidCoordinatorConfig.Builder().build();
+    DataSourcesSnapshotFactory snapshotFactory = createSnapshotFactory(connector, config, coordinatorConfig);
     sqlSegmentsMetadataManager = new SqlSegmentsMetadataManager(
         jsonMapper,
         Suppliers.ofInstance(config),
         derbyConnectorRule.metadataTablesConfigSupplier(),
-        connector
+        connector,
+        snapshotFactory
     );
     sqlSegmentsMetadataManager.start();
 
@@ -140,6 +191,33 @@ public class SqlSegmentsMetadataManagerTest
 
     publisher.publishSegment(segment1);
     publisher.publishSegment(segment2);
+  }
+
+  @Nonnull
+  private DataSourcesSnapshotFactory createSnapshotFactory(TestDerbyConnector connector, SegmentsMetadataManagerConfig config, DruidCoordinatorConfig coordinatorConfig)
+  {
+    DataSourcesSnapshotFactory snapshotFactory = null;
+    switch (pollingType) {
+      case full:
+        snapshotFactory = new FullDataSourcesSnapshotFactory(
+            derbyConnectorRule.metadataTablesConfigSupplier(),
+            jsonMapper,
+            connector
+        );
+        break;
+      case incremental:
+        snapshotFactory = new IncrementalDataSourcesSnapshotFactory(
+            derbyConnectorRule.metadataTablesConfigSupplier(),
+            jsonMapper,
+            connector,
+            config,
+            coordinatorConfig
+        );
+        break;
+      default:
+        Assert.fail("unexpected polling type");
+    }
+    return snapshotFactory;
   }
 
   @After
@@ -173,9 +251,11 @@ public class SqlSegmentsMetadataManagerTest
                            .map(ImmutableDruidDataSource::getName)
                            .collect(Collectors.toList())
     );
+    Assert.assertNotNull(dataSourcesSnapshot.getDataSource("wikipedia"));
+    Collection<DataSegment> segments = dataSourcesSnapshot.getDataSource("wikipedia").getSegments();
     Assert.assertEquals(
         ImmutableSet.of(segment1, segment2),
-        ImmutableSet.copyOf(dataSourcesSnapshot.getDataSource("wikipedia").getSegments())
+        ImmutableSet.copyOf(segments)
     );
     Assert.assertEquals(
         ImmutableSet.of(segment1, segment2),
@@ -257,7 +337,7 @@ public class SqlSegmentsMetadataManagerTest
     final DataSegment newSegment3 = createNewSegment1(newDataSource3);
     publisher.publishSegment(newSegment3);
 
-    // This time wait for periodic poll (not doing on demand poll so we have to wait a bit...)
+    // This time wait for periodic poll (not doing on demand poll, so we have to wait a bit...)
     while (sqlSegmentsMetadataManager.getDataSourcesSnapshot().getDataSource(newDataSource3) == null) {
       Thread.sleep(1000);
     }
@@ -265,10 +345,11 @@ public class SqlSegmentsMetadataManagerTest
     Assert.assertTrue(sqlSegmentsMetadataManager.getLatestDatabasePoll() instanceof SqlSegmentsMetadataManager.PeriodicDatabasePoll);
     dataSourcesSnapshot = sqlSegmentsMetadataManager.getDataSourcesSnapshot();
     Assert.assertEquals(
-        ImmutableList.of("wikipedia2", "wikipedia3", "wikipedia"),
+        ImmutableList.of("wikipedia", "wikipedia2", "wikipedia3"),
         dataSourcesSnapshot.getDataSourcesWithAllUsedSegments()
                            .stream()
                            .map(ImmutableDruidDataSource::getName)
+                           .sorted()
                            .collect(Collectors.toList())
     );
   }
@@ -350,7 +431,9 @@ public class SqlSegmentsMetadataManagerTest
         true,
         "corrupt-version",
         true,
-        StringUtils.toUtf8("corrupt-payload")
+        StringUtils.toUtf8("corrupt-payload"),
+        "corrupt-last-used-date",
+        "corrupt-last-updated-date"
     );
 
     EmittingLogger.registerEmitter(new NoopServiceEmitter());
@@ -364,28 +447,79 @@ public class SqlSegmentsMetadataManagerTest
   }
 
   @Test
-  public void testGetUnusedSegmentIntervals()
+  public void testGetUnusedSegmentIntervals() throws IOException
   {
     sqlSegmentsMetadataManager.startPollingDatabasePeriodically();
     sqlSegmentsMetadataManager.poll();
+
+    // We alter the segment table to allow nullable used_flag_last_updated and last_updated in order to test
+    // compatibility during druid upgrade from version without them.
+    derbyConnectorRule.allowLastUpdatedDatesToBeNullable();
+
     Assert.assertTrue(sqlSegmentsMetadataManager.isPollingDatabasePeriodically());
     int numChangedSegments = sqlSegmentsMetadataManager.markAsUnusedAllSegmentsInDataSource("wikipedia");
     Assert.assertEquals(2, numChangedSegments);
 
+    String newDs = "newDataSource";
+    final DataSegment newSegment = createSegment(
+        newDs,
+        "2017-10-15T00:00:00.000/2017-10-16T00:00:00.000",
+        "2017-10-15T20:19:12.565Z",
+        "wikipedia2/index/y=2017/m=10/d=15/2017-10-16T20:19:12.565Z/0/index.zip",
+        0
+    );
+    DateTime last_updated = DateTimes.nowUtc().minus(Duration.parse("PT7200S").getMillis());
+    publish(newSegment, false, last_updated, last_updated);
+
+    final DataSegment newSegment2 = createSegment(
+        newDs,
+        "2017-10-16T00:00:00.000/2017-10-17T00:00:00.000",
+        "2017-10-15T20:19:12.565Z",
+        "wikipedia2/index/y=2017/m=10/d=15/2017-10-16T20:19:12.565Z/0/index.zip",
+        0
+    );
+    last_updated = DateTimes.nowUtc().minus(Duration.parse("PT172800S").getMillis());
+    publish(newSegment2, false, last_updated, last_updated);
+
+    final DataSegment newSegment3 = createSegment(
+        newDs,
+        "2017-10-17T00:00:00.000/2017-10-18T00:00:00.000",
+        "2017-10-15T20:19:12.565Z",
+        "wikipedia2/index/y=2017/m=10/d=15/2017-10-16T20:19:12.565Z/0/index.zip",
+        0
+    );
+    publish(newSegment3, false, null, null);
+
     Assert.assertEquals(
         ImmutableList.of(segment2.getInterval()),
-        sqlSegmentsMetadataManager.getUnusedSegmentIntervals("wikipedia", DateTimes.of("3000"), 1)
+        sqlSegmentsMetadataManager.getUnusedSegmentIntervals("wikipedia", DateTimes.of("3000"), 1, DateTimes.COMPARE_DATE_AS_STRING_MAX)
     );
 
     // Test the DateTime maxEndTime argument of getUnusedSegmentIntervals
     Assert.assertEquals(
         ImmutableList.of(segment2.getInterval()),
-        sqlSegmentsMetadataManager.getUnusedSegmentIntervals("wikipedia", DateTimes.of(2012, 1, 7, 0, 0), 1)
+        sqlSegmentsMetadataManager.getUnusedSegmentIntervals("wikipedia", DateTimes.of(2012, 1, 7, 0, 0), 1, DateTimes.COMPARE_DATE_AS_STRING_MAX)
     );
 
     Assert.assertEquals(
         ImmutableList.of(segment2.getInterval(), segment1.getInterval()),
-        sqlSegmentsMetadataManager.getUnusedSegmentIntervals("wikipedia", DateTimes.of("3000"), 5)
+        sqlSegmentsMetadataManager.getUnusedSegmentIntervals("wikipedia", DateTimes.of("3000"), 5, DateTimes.COMPARE_DATE_AS_STRING_MAX)
+    );
+
+    // Test a buffer period that should exclude some segments
+
+    // The wikipedia datasource has segments generated with last used time equal to roughly the time of test run. None of these segments should be selected with a bufer period of 1 day
+    Assert.assertEquals(
+        ImmutableList.of(),
+        sqlSegmentsMetadataManager.getUnusedSegmentIntervals("wikipedia", DateTimes.of("3000"), 5, DateTimes.nowUtc().minus(Duration.parse("PT86400S")))
+    );
+
+    // One of the 3 segments in newDs has a null used_flag_last_updated which should mean getUnusedSegmentIntervals never returns it
+    // One of the 3 segments in newDs has a used_flag_last_updated older than 1 day which means it should also be returned
+    // The last of the 3 segemns in newDs has a used_flag_last_updated date less than one day and should not be returned
+    Assert.assertEquals(
+        ImmutableList.of(newSegment2.getInterval()),
+        sqlSegmentsMetadataManager.getUnusedSegmentIntervals(newDs, DateTimes.of("3000"), 5, DateTimes.nowUtc().minus(Duration.parse("PT86400S")))
     );
   }
 
@@ -868,6 +1002,46 @@ public class SqlSegmentsMetadataManagerTest
     Assert.assertEquals(2, dataSegmentSet.size());
     Assert.assertTrue(dataSegmentSet.contains(segment1));
     Assert.assertTrue(dataSegmentSet.contains(newSegment2));
+  }
+
+  @Test
+  public void testPopulateUsedFlagLastUpdated() throws IOException
+  {
+    derbyConnectorRule.allowLastUpdatedDatesToBeNullable();
+    final DataSegment newSegment = createSegment(
+        "dummyDS",
+        "2017-10-17T00:00:00.000/2017-10-18T00:00:00.000",
+        "2017-10-15T20:19:12.565Z",
+        "wikipedia2/index/y=2017/m=10/d=15/2017-10-16T20:19:12.565Z/0/index.zip",
+        0
+    );
+    publish(newSegment, false, null, null);
+    Assert.assertTrue(getCountOfRowsWithLastUsedNull() > 0);
+    sqlSegmentsMetadataManager.populateUsedFlagLastUpdated();
+    Assert.assertTrue(getCountOfRowsWithLastUsedNull() == 0);
+  }
+
+  private int getCountOfRowsWithLastUsedNull()
+  {
+    return derbyConnectorRule.getConnector().retryWithHandle(
+        new HandleCallback<Integer>()
+        {
+          @Override
+          public Integer withHandle(Handle handle)
+          {
+            List<Map<String, Object>> lst = handle.select(
+                StringUtils.format(
+                    "SELECT * FROM %1$s WHERE USED_FLAG_LAST_UPDATED IS NULL",
+                    derbyConnectorRule.metadataTablesConfigSupplier()
+                                      .get()
+                                      .getSegmentsTable()
+                                      .toUpperCase(Locale.ENGLISH)
+                )
+            );
+            return lst.size();
+          }
+        }
+    );
   }
 
 }

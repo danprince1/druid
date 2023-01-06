@@ -30,6 +30,8 @@ public class SegmentsMetadataManagerConfig
 
   @JsonProperty
   private Period pollDuration = new Period("PT1M");
+  @JsonProperty
+  private PollingType pollingType = PollingType.full;
 
   public Period getPollDuration()
   {
@@ -39,5 +41,21 @@ public class SegmentsMetadataManagerConfig
   public void setPollDuration(Period pollDuration)
   {
     this.pollDuration = pollDuration;
+  }
+
+  public PollingType getPollingType()
+  {
+    return pollingType;
+  }
+
+  public void setPollingType(PollingType pollingType)
+  {
+    this.pollingType = pollingType;
+  }
+
+  public enum PollingType
+  {
+    full,
+    incremental
   }
 }

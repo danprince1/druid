@@ -73,6 +73,7 @@ import org.skife.jdbi.v2.util.ByteArrayMapper;
 
 import javax.annotation.Nullable;
 import javax.validation.constraints.NotNull;
+
 import java.io.IOException;
 import java.sql.ResultSet;
 import java.util.ArrayList;
@@ -1006,25 +1007,28 @@ public class IndexerSQLMetadataStorageCoordinator implements IndexerMetadataStor
 
       PreparedBatch preparedBatch = handle.prepareBatch(
           StringUtils.format(
-              "INSERT INTO %1$s (id, dataSource, created_date, start, %2$send%2$s, partitioned, version, used, payload) "
-                  + "VALUES (:id, :dataSource, :created_date, :start, :end, :partitioned, :version, :used, :payload)",
+              "INSERT INTO %1$s (id, dataSource, created_date, start, %2$send%2$s, partitioned, version, used, payload, used_flag_last_updated, last_updated) "
+                  + "VALUES (:id, :dataSource, :created_date, :start, :end, :partitioned, :version, :used, :payload, :used_flag_last_updated, :last_updated)",
               dbTables.getSegmentsTable(),
               connector.getQuoteString()
           )
       );
 
+      String now = DateTimes.nowUtc().toString();
       for (List<DataSegment> partition : partitionedSegments) {
         for (DataSegment segment : partition) {
           preparedBatch.add()
               .bind("id", segment.getId().toString())
               .bind("dataSource", segment.getDataSource())
-              .bind("created_date", DateTimes.nowUtc().toString())
+              .bind("created_date", now)
               .bind("start", segment.getInterval().getStart().toString())
               .bind("end", segment.getInterval().getEnd().toString())
               .bind("partitioned", (segment.getShardSpec() instanceof NoneShardSpec) ? false : true)
               .bind("version", segment.getVersion())
               .bind("used", usedSegments.contains(segment))
-              .bind("payload", jsonMapper.writeValueAsBytes(segment));
+              .bind("payload", jsonMapper.writeValueAsBytes(segment))
+              .bind("used_flag_last_updated", now)
+              .bind("last_updated", now);
         }
         final int[] affectedRows = preparedBatch.execute();
         final boolean succeeded = Arrays.stream(affectedRows).allMatch(eachAffectedRows -> eachAffectedRows == 1);
@@ -1227,7 +1231,7 @@ public class IndexerSQLMetadataStorageCoordinator implements IndexerMetadataStor
   }
 
   /**
-   * Mark segments as unsed in a transaction. This method is idempotent in that if
+   * Mark segments as unused in a transaction. This method is idempotent in that if
    * the segments was already marked unused, it will return true.
    *
    * @param handle         database handle

@@ -37,6 +37,7 @@ import org.apache.druid.guice.JavaScriptModule;
 import org.apache.druid.guice.LifecycleModule;
 import org.apache.druid.guice.LocalDataStorageDruidModule;
 import org.apache.druid.guice.MetadataConfigModule;
+import org.apache.druid.guice.MetadataStoragePollingTypeDruidModule;
 import org.apache.druid.guice.NestedDataModule;
 import org.apache.druid.guice.ServerModule;
 import org.apache.druid.guice.ServerViewModule;
@@ -137,7 +138,8 @@ public class CoreInjectorBuilder extends DruidInjectorBuilder
         new StartupLoggingModule(),
         new ExternalStorageAccessSecurityModule(),
         new ServiceClientModule(),
-        new StorageConnectorModule()
+        new StorageConnectorModule(),
+        new MetadataStoragePollingTypeDruidModule()
     );
     return this;
   }

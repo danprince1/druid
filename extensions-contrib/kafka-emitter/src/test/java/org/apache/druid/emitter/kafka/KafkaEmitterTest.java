@@ -25,6 +25,7 @@ import com.google.common.collect.ImmutableMap;
 import org.apache.druid.java.util.common.DateTimes;
 import org.apache.druid.java.util.emitter.core.Event;
 import org.apache.druid.java.util.emitter.service.AlertEvent;
+import org.apache.druid.java.util.emitter.service.AuditEvent;
 import org.apache.druid.java.util.emitter.service.ServiceMetricEvent;
 import org.apache.druid.server.QueryStats;
 import org.apache.druid.server.RequestLogLine;
@@ -50,12 +51,15 @@ public class KafkaEmitterTest
   @Parameterized.Parameter
   public String requestTopic;
 
-  @Parameterized.Parameters(name = "{index}: requestTopic - {0}")
+  @Parameterized.Parameter(1)
+  public String auditTopic;
+
+  @Parameterized.Parameters()
   public static Object[] data()
   {
-    return new Object[] {
-        "requests",
-        null
+    return new Object[][] {
+        {"requests", "audit"},
+        {null, null}
     };
   }
 
@@ -77,14 +81,22 @@ public class KafkaEmitterTest
         ).build("service", "host")
     );
 
-    int totalEvents = serviceMetricEvents.size() + alertEvents.size() + requestLogEvents.size();
-    int totalEventsExcludingRequestLogEvents = totalEvents - requestLogEvents.size();
+    final List<AuditEvent> auditEvents = ImmutableList.of(
+        AuditEvent.builder().build("id1", AuditEvent.EventType.AUTHENTICATION_RESULT).build("service", "host")
+    );
 
-    final CountDownLatch countDownSentEvents = new CountDownLatch(
-        requestTopic == null ? totalEventsExcludingRequestLogEvents : totalEvents);
+    int totalEvents = serviceMetricEvents.size() + alertEvents.size();
+    if (null != requestTopic) {
+      totalEvents += requestLogEvents.size();
+    }
+    if (null != auditTopic) {
+      totalEvents += auditEvents.size();
+    }
+
+    final CountDownLatch countDownSentEvents = new CountDownLatch(totalEvents);
     final KafkaProducer<String, String> producer = mock(KafkaProducer.class);
     final KafkaEmitter kafkaEmitter = new KafkaEmitter(
-        new KafkaEmitterConfig("", "metrics", "alerts", requestTopic, "test-cluster", null),
+        new KafkaEmitterConfig("", "metrics", "alerts", requestTopic, "test-cluster", null, auditTopic),
         new ObjectMapper()
     )
     {
@@ -113,11 +125,15 @@ public class KafkaEmitterTest
     for (Event event : requestLogEvents) {
       kafkaEmitter.emit(event);
     }
+    for (Event event : auditEvents) {
+      kafkaEmitter.emit(event);
+    }
     countDownSentEvents.await();
 
     Assert.assertEquals(0, kafkaEmitter.getMetricLostCount());
     Assert.assertEquals(0, kafkaEmitter.getAlertLostCount());
     Assert.assertEquals(requestTopic == null ? requestLogEvents.size() : 0, kafkaEmitter.getRequestLostCount());
+    Assert.assertEquals(null == auditTopic ? auditEvents.size() : 0, kafkaEmitter.getAuditLostCount());
     Assert.assertEquals(0, kafkaEmitter.getInvalidLostCount());
   }
 }

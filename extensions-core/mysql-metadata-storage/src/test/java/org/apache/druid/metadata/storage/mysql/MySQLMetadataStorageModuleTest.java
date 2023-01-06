@@ -31,6 +31,7 @@ import org.apache.druid.guice.JsonConfigProvider;
 import org.apache.druid.guice.JsonConfigurator;
 import org.apache.druid.guice.LifecycleModule;
 import org.apache.druid.guice.MetadataConfigModule;
+import org.apache.druid.guice.MetadataStoragePollingTypeDruidModule;
 import org.apache.druid.guice.annotations.Json;
 import org.apache.druid.java.util.emitter.core.NoopEmitter;
 import org.apache.druid.java.util.emitter.service.ServiceEmitter;
@@ -112,6 +113,7 @@ public class MySQLMetadataStorageModuleTest
     Injector injector = GuiceInjectors.makeStartupInjectorWithModules(
         ImmutableList.of(
             new MetadataConfigModule(),
+            new MetadataStoragePollingTypeDruidModule(),
             new LifecycleModule(),
             module,
             new Module()

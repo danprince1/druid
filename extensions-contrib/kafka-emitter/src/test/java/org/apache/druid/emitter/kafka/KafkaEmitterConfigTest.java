@@ -45,7 +45,7 @@ public class KafkaEmitterConfigTest
     KafkaEmitterConfig kafkaEmitterConfig = new KafkaEmitterConfig("hostname", "metricTest",
         "alertTest", "requestTest",
         "clusterNameTest", ImmutableMap.<String, String>builder()
-        .put("testKey", "testValue").build()
+        .put("testKey", "testValue").build(), "auditTopic"
     );
     String kafkaEmitterConfigString = mapper.writeValueAsString(kafkaEmitterConfig);
     KafkaEmitterConfig kafkaEmitterConfigExpected = mapper.readerFor(KafkaEmitterConfig.class)
@@ -59,7 +59,7 @@ public class KafkaEmitterConfigTest
     KafkaEmitterConfig kafkaEmitterConfig = new KafkaEmitterConfig("hostname", "metricTest",
         "alertTest", null,
         "clusterNameTest", ImmutableMap.<String, String>builder()
-        .put("testKey", "testValue").build()
+        .put("testKey", "testValue").build(), "requestTopic"
     );
     String kafkaEmitterConfigString = mapper.writeValueAsString(kafkaEmitterConfig);
     KafkaEmitterConfig kafkaEmitterConfigExpected = mapper.readerFor(KafkaEmitterConfig.class)
@@ -68,11 +68,25 @@ public class KafkaEmitterConfigTest
   }
 
   @Test
+  public void testSerDeserKafkaEmitterConfigNullAuditTopic() throws IOException
+  {
+    KafkaEmitterConfig kafkaEmitterConfig = new KafkaEmitterConfig("hostname", "metricTest",
+                                                                   "alertTest", "requestTest",
+                                                                   "clusterNameTest", ImmutableMap.<String, String>builder()
+                                                                       .put("testKey", "testValue").build(), null
+    );
+    String kafkaEmitterConfigString = mapper.writeValueAsString(kafkaEmitterConfig);
+    KafkaEmitterConfig kafkaEmitterConfigExpected = mapper.readerFor(KafkaEmitterConfig.class)
+                                                          .readValue(kafkaEmitterConfigString);
+    Assert.assertEquals(kafkaEmitterConfigExpected, kafkaEmitterConfig);
+  }
+
+  @Test
   public void testSerDeNotRequiredKafkaProducerConfig()
   {
     KafkaEmitterConfig kafkaEmitterConfig = new KafkaEmitterConfig("localhost:9092", "metricTest",
         "alertTest", null,
-        "clusterNameTest", null
+        "clusterNameTest", null, "auditTopic"
     );
     try {
       @SuppressWarnings("unused")

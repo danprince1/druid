@@ -231,19 +231,19 @@ public class DefaultQueryMetrics<QueryType extends Query<?>> implements QueryMet
   @Override
   public QueryMetrics<QueryType> reportWaitTime(long timeNs)
   {
-    return reportMillisTimeMetric("query/wait/time", timeNs);
+    return this;
   }
 
   @Override
   public QueryMetrics<QueryType> reportSegmentTime(long timeNs)
   {
-    return reportMillisTimeMetric("query/segment/time", timeNs);
+    return this;
   }
 
   @Override
   public QueryMetrics<QueryType> reportSegmentAndCacheTime(long timeNs)
   {
-    return reportMillisTimeMetric("query/segmentAndCache/time", timeNs);
+    return this;
   }
 
   @Override
@@ -261,8 +261,7 @@ public class DefaultQueryMetrics<QueryType extends Query<?>> implements QueryMet
   @Override
   public QueryMetrics<QueryType> reportBackPressureTime(long timeNs)
   {
-    // Don't emit by default.
-    return this;
+    return reportMillisTimeMetric("query/node/backpressure", timeNs);
   }
 
   @Override
@@ -343,8 +342,7 @@ public class DefaultQueryMetrics<QueryType extends Query<?>> implements QueryMet
   @Override
   public QueryMetrics<QueryType> reportQueriedSegmentCount(long segmentCount)
   {
-    // Don't emit by default.
-    return this;
+    return reportMetric("query/segments/count", segmentCount);
   }
 
   @Override

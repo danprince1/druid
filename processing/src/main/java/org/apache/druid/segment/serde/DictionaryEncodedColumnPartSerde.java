@@ -322,7 +322,7 @@ public class DictionaryEncodedColumnPartSerde implements ColumnPartSerde
         final WritableSupplier<ColumnarMultiInts> rMultiValuedColumn;
 
         if (hasMultipleValues) {
-          rMultiValuedColumn = readMultiValuedColumn(rVersion, buffer, rFlags);
+          rMultiValuedColumn = readMultiValuedColumn(rVersion, buffer, rFlags, builder);
           rSingleValuedColumn = null;
         } else {
           rSingleValuedColumn = readSingleValuedColumn(rVersion, buffer);
@@ -389,7 +389,12 @@ public class DictionaryEncodedColumnPartSerde implements ColumnPartSerde
         }
       }
 
-      private WritableSupplier<ColumnarMultiInts> readMultiValuedColumn(VERSION version, ByteBuffer buffer, int flags)
+      private WritableSupplier<ColumnarMultiInts> readMultiValuedColumn(
+          VERSION version,
+          ByteBuffer buffer,
+          int flags,
+          ColumnBuilder builder
+      )
       {
         switch (version) {
           case UNCOMPRESSED_MULTI_VALUE: {
@@ -406,7 +411,11 @@ public class DictionaryEncodedColumnPartSerde implements ColumnPartSerde
             if (Feature.MULTI_VALUE.isSet(flags)) {
               return CompressedVSizeColumnarMultiIntsSupplier.fromByteBuffer(buffer, byteOrder);
             } else if (Feature.MULTI_VALUE_V3.isSet(flags)) {
-              return V3CompressedVSizeColumnarMultiIntsSupplier.fromByteBuffer(buffer, byteOrder);
+              return V3CompressedVSizeColumnarMultiIntsSupplier.fromByteBuffer(
+                  buffer,
+                  byteOrder,
+                  builder.getFileMapper()
+              );
             } else {
               throw new IAE("Unrecognized multi-value flag[%d] for version[%s]", flags, version);
             }

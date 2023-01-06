@@ -20,6 +20,7 @@
 package org.apache.druid.tests.indexer;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
+import org.apache.druid.indexer.partitions.DynamicPartitionsSpec;
 import org.apache.druid.java.util.common.StringUtils;
 import org.apache.druid.java.util.common.logger.Logger;
 import org.apache.druid.testing.guice.DruidTestModuleFactory;
@@ -49,11 +50,32 @@ public class ITSystemTableBatchIndexTaskTest extends AbstractITBatchIndexTest
 
       final Function<String, String> transform = spec -> {
         try {
-          return StringUtils.replace(
+          spec = StringUtils.replace(
               spec,
               "%%SEGMENT_AVAIL_TIMEOUT_MILLIS%%",
               jsonMapper.writeValueAsString("0")
           );
+          spec = StringUtils.replace(
+              spec,
+              "%%PARTITIONS_SPEC%%",
+              jsonMapper.writeValueAsString(new DynamicPartitionsSpec(3, 5000L))
+          );
+          spec = StringUtils.replace(
+              spec,
+              "%%FORCE_GUARANTEED_ROLLUP%%",
+              jsonMapper.writeValueAsString(false)
+          );
+          spec = StringUtils.replace(
+              spec,
+              "%%MAX_INTERVALS_INGESTED%%",
+              jsonMapper.writeValueAsString(Integer.MAX_VALUE)
+          );
+          spec = StringUtils.replace(
+              spec,
+              "%%MAX_SEGMENTS_INGESTED%%",
+              jsonMapper.writeValueAsString(Integer.MAX_VALUE)
+          );
+          return spec;
         }
         catch (JsonProcessingException e) {
           throw new RuntimeException(e);

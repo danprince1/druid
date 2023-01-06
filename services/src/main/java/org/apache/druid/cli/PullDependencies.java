@@ -259,6 +259,7 @@ public class PullDependencies implements Runnable
     hadoopExclusions = Dependencies.builder()
                                    .putAll(PROVIDED_BY_CORE_DEPENDENCIES)
                                    .putAll(SECURITY_VULNERABILITY_EXCLUSIONS)
+                                   .put("log4j", "log4j")
                                    .build();
   }
 

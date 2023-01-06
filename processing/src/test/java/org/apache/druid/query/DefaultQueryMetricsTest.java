@@ -21,6 +21,7 @@ package org.apache.druid.query;
 
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
+import org.apache.druid.common.config.NullHandling;
 import org.apache.druid.java.util.common.granularity.Granularities;
 import org.apache.druid.java.util.emitter.service.ServiceEmitter;
 import org.apache.druid.query.aggregation.CountAggregatorFactory;
@@ -29,16 +30,24 @@ import org.apache.druid.query.dimension.ListFilteredDimensionSpec;
 import org.apache.druid.query.filter.SelectorDimFilter;
 import org.apache.druid.query.topn.TopNQuery;
 import org.apache.druid.query.topn.TopNQueryBuilder;
+import org.apache.druid.testing.InitializedNullHandlingTest;
 import org.joda.time.Interval;
 import org.junit.Assert;
+import org.junit.BeforeClass;
 import org.junit.Test;
 
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 
-public class DefaultQueryMetricsTest
+public class DefaultQueryMetricsTest extends InitializedNullHandlingTest
 {
+
+  @BeforeClass
+  public static void setUpClass()
+  {
+    NullHandling.initializeForTests();
+  }
 
   /**
    * Tests that passed a query {@link DefaultQueryMetrics} produces events with a certain set of dimensions, no more,
@@ -50,6 +59,7 @@ public class DefaultQueryMetricsTest
     CachingEmitter cachingEmitter = new CachingEmitter();
     ServiceEmitter serviceEmitter = new ServiceEmitter("", "", cachingEmitter);
     DefaultQueryMetrics<Query<?>> queryMetrics = new DefaultQueryMetrics<>();
+    NullHandling.initializeForTests();
     TopNQuery query = new TopNQueryBuilder()
         .dataSource("xx")
         .granularity(Granularities.ALL)
@@ -108,20 +118,20 @@ public class DefaultQueryMetricsTest
     // query/time and most metrics below are measured in milliseconds by default
     Assert.assertEquals(1L, actualEvent.get("value"));
 
-    queryMetrics.reportWaitTime(2000001).emit(serviceEmitter);
-    actualEvent = cachingEmitter.getLastEmittedEvent().toMap();
-    Assert.assertEquals("query/wait/time", actualEvent.get("metric"));
-    Assert.assertEquals(2L, actualEvent.get("value"));
+    //queryMetrics.reportWaitTime(2000001).emit(serviceEmitter);
+    //actualEvent = cachingEmitter.getLastEmittedEvent().toMap();
+    //Assert.assertEquals("query/wait/time", actualEvent.get("metric"));
+    //Assert.assertEquals(2L, actualEvent.get("value"));
 
-    queryMetrics.reportSegmentTime(3000001).emit(serviceEmitter);
-    actualEvent = cachingEmitter.getLastEmittedEvent().toMap();
-    Assert.assertEquals("query/segment/time", actualEvent.get("metric"));
-    Assert.assertEquals(3L, actualEvent.get("value"));
+    //queryMetrics.reportSegmentTime(3000001).emit(serviceEmitter);
+    //actualEvent = cachingEmitter.getLastEmittedEvent().toMap();
+    //Assert.assertEquals("query/segment/time", actualEvent.get("metric"));
+    //Assert.assertEquals(3L, actualEvent.get("value"));
 
-    queryMetrics.reportSegmentAndCacheTime(4000001).emit(serviceEmitter);
-    actualEvent = cachingEmitter.getLastEmittedEvent().toMap();
-    Assert.assertEquals("query/segmentAndCache/time", actualEvent.get("metric"));
-    Assert.assertEquals(4L, actualEvent.get("value"));
+    //queryMetrics.reportSegmentAndCacheTime(4000001).emit(serviceEmitter);
+    //actualEvent = cachingEmitter.getLastEmittedEvent().toMap();
+    //Assert.assertEquals("query/segmentAndCache/time", actualEvent.get("metric"));
+    //Assert.assertEquals(4L, actualEvent.get("value"));
 
     queryMetrics.reportCpuTime(6000001).emit(serviceEmitter);
     actualEvent = cachingEmitter.getLastEmittedEvent().toMap();
@@ -149,12 +159,15 @@ public class DefaultQueryMetricsTest
     Assert.assertEquals("query/node/bytes", actualEvent.get("metric"));
     Assert.assertEquals(10L, actualEvent.get("value"));
 
-    // Here we are testing that Queried Segment Count does not get emitted by the DefaultQueryMetrics and the last
-    // metric remains as query/node/bytes
+    queryMetrics.reportBackPressureTime(8000001).emit(serviceEmitter);
+    actualEvent = cachingEmitter.getLastEmittedEvent().toMap();
+    Assert.assertEquals("query/node/backpressure", actualEvent.get("metric"));
+    Assert.assertEquals(8L, actualEvent.get("value"));
+
     queryMetrics.reportQueriedSegmentCount(25).emit(serviceEmitter);
     actualEvent = cachingEmitter.getLastEmittedEvent().toMap();
-    Assert.assertEquals("query/node/bytes", actualEvent.get("metric"));
-    Assert.assertEquals(10L, actualEvent.get("value"));
+    Assert.assertEquals("query/segments/count", actualEvent.get("metric"));
+    Assert.assertEquals(25L, actualEvent.get("value"));
   }
 
   @Test
@@ -164,15 +177,15 @@ public class DefaultQueryMetricsTest
     ServiceEmitter serviceEmitter = new ServiceEmitter("", "", cachingEmitter);
     DefaultQueryMetrics<Query<?>> queryMetrics = new DefaultQueryMetrics<>();
     queryMetrics.vectorized(true);
-    queryMetrics.reportSegmentTime(0).emit(serviceEmitter);
+    queryMetrics.reportNodeBytes(10).emit(serviceEmitter);
     Map<String, Object> actualEvent = cachingEmitter.getLastEmittedEvent().toMap();
     Assert.assertEquals(7, actualEvent.size());
     Assert.assertTrue(actualEvent.containsKey("feed"));
     Assert.assertTrue(actualEvent.containsKey("timestamp"));
     Assert.assertEquals("", actualEvent.get("host"));
     Assert.assertEquals("", actualEvent.get("service"));
-    Assert.assertEquals("query/segment/time", actualEvent.get("metric"));
-    Assert.assertEquals(0L, actualEvent.get("value"));
+    Assert.assertEquals("query/node/bytes", actualEvent.get("metric"));
+    Assert.assertEquals(10L, actualEvent.get("value"));
     Assert.assertEquals(true, actualEvent.get("vectorized"));
   }
 }

@@ -34,6 +34,7 @@ import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * An immutable snapshot of metadata information about used segments and overshadowed segments, coming from
@@ -75,6 +76,7 @@ public class DataSourcesSnapshot
   private final Map<String, ImmutableDruidDataSource> dataSourcesWithAllUsedSegments;
   private final Map<String, VersionedIntervalTimeline<String, DataSegment>> usedSegmentsTimelinesPerDataSource;
   private final ImmutableSet<SegmentId> overshadowedSegments;
+  private String asOfDate;
 
   public DataSourcesSnapshot(Map<String, ImmutableDruidDataSource> dataSourcesWithAllUsedSegments)
   {
@@ -95,6 +97,25 @@ public class DataSourcesSnapshot
     this.dataSourcesWithAllUsedSegments = dataSourcesWithAllUsedSegments;
     this.usedSegmentsTimelinesPerDataSource = usedSegmentsTimelinesPerDataSource;
     this.overshadowedSegments = ImmutableSet.copyOf(determineOvershadowedSegments());
+  }
+
+  public DataSourcesSnapshot(
+      Map<String, ImmutableDruidDataSource> dataSourcesWithAllUsedSegments,
+      Map<String, VersionedIntervalTimeline<String, DataSegment>> usedSegmentsTimelinesPerDataSource,
+      Set<SegmentId> overshadowedSegments,
+      String asOfDate
+  )
+  {
+    this.dataSourcesWithAllUsedSegments = dataSourcesWithAllUsedSegments;
+    this.usedSegmentsTimelinesPerDataSource = usedSegmentsTimelinesPerDataSource;
+    this.overshadowedSegments = ImmutableSet.copyOf(overshadowedSegments);
+    this.asOfDate = asOfDate;
+  }
+
+  @Nullable
+  public String getAsOfDate()
+  {
+    return asOfDate;
   }
 
   public Collection<ImmutableDruidDataSource> getDataSourcesWithAllUsedSegments()

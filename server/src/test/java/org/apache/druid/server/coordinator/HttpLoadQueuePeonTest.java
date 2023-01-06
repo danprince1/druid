@@ -77,6 +77,7 @@ public class HttpLoadQueuePeonTest
       .withCoordinatorKillMaxSegments(10)
       .withLoadQueuePeonRepeatDelay(Duration.ZERO)
       .withCoordinatorKillIgnoreDurationToRetain(false)
+      .withCoordinatorPrimaryReplicantLoaderPeriod(Duration.ZERO)
       .withHttpLoadQueuePeonBatchSize(2)
       .build();
 

@@ -58,7 +58,7 @@ public class EmitClusterStatsAndMetrics implements CoordinatorDuty
     this.isContainCompactSegmentDuty = isContainCompactSegmentDuty;
   }
 
-  private void emitTieredStat(
+  protected void emitTieredStat(
       final ServiceEmitter emitter,
       final String metricName,
       final String tier,

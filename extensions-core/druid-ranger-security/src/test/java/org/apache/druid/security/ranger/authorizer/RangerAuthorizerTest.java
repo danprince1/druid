@@ -19,6 +19,7 @@
 
 package org.apache.druid.security.ranger.authorizer;
 
+import org.apache.druid.server.metrics.NoopServiceEmitter;
 import org.apache.druid.server.security.Action;
 import org.apache.druid.server.security.AuthenticationResult;
 import org.apache.druid.server.security.Resource;
@@ -42,7 +43,13 @@ public class RangerAuthorizerTest
   @BeforeClass
   public static void setupBeforeClass()
   {
-    rangerAuthorizer = new RangerAuthorizer(null, null, false, new Configuration());
+    rangerAuthorizer = new RangerAuthorizer(
+        null,
+        null,
+        false,
+        new Configuration(),
+        new NoopServiceEmitter()
+    );
   }
 
   @Test

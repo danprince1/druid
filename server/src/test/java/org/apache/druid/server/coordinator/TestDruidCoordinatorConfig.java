@@ -28,6 +28,7 @@ public class TestDruidCoordinatorConfig extends DruidCoordinatorConfig
   private final Duration coordinatorIndexingPeriod;
   private final Duration metadataStoreManagementPeriod;
   private final Duration loadTimeoutDelay;
+  private final boolean coordinatorKillOn;
   private final Duration coordinatorKillPeriod;
   private final Duration coordinatorKillDurationToRetain;
   private final Duration coordinatorSupervisorKillPeriod;
@@ -48,6 +49,10 @@ public class TestDruidCoordinatorConfig extends DruidCoordinatorConfig
   private final int curatorLoadQueuePeonNumCallbackThreads;
   private final Duration httpLoadQueuePeonHostTimeout;
   private final int httpLoadQueuePeonBatchSize;
+  private final Duration coordinatorPrimaryReplicantLoaderPeriod;
+  private final boolean loadPrimaryReplicantSeparately;
+  private final int dutiesRunnableExecutorThreadPoolSize;
+  private final Duration coordinatorKillBufferPeriod;
 
   public TestDruidCoordinatorConfig(
       Duration coordinatorStartDelay,
@@ -55,6 +60,7 @@ public class TestDruidCoordinatorConfig extends DruidCoordinatorConfig
       Duration coordinatorIndexingPeriod,
       Duration metadataStoreManagementPeriod,
       Duration loadTimeoutDelay,
+      boolean coordinatorKillOn,
       Duration coordinatorKillPeriod,
       Duration coordinatorKillDurationToRetain,
       Duration coordinatorSupervisorKillPeriod,
@@ -74,7 +80,11 @@ public class TestDruidCoordinatorConfig extends DruidCoordinatorConfig
       Duration httpLoadQueuePeonRepeatDelay,
       Duration httpLoadQueuePeonHostTimeout,
       int httpLoadQueuePeonBatchSize,
-      int curatorLoadQueuePeonNumCallbackThreads
+      int curatorLoadQueuePeonNumCallbackThreads,
+      Duration coordinatorPrimaryReplicantLoaderPeriod,
+      boolean loadPrimaryReplicantSeparately,
+      int dutiesRunnableExecutorThreadPoolSize,
+      Duration coordinatorKillBufferPeriod
   )
   {
     this.coordinatorStartDelay = coordinatorStartDelay;
@@ -82,6 +92,7 @@ public class TestDruidCoordinatorConfig extends DruidCoordinatorConfig
     this.coordinatorIndexingPeriod = coordinatorIndexingPeriod;
     this.metadataStoreManagementPeriod = metadataStoreManagementPeriod;
     this.loadTimeoutDelay = loadTimeoutDelay;
+    this.coordinatorKillOn = coordinatorKillOn;
     this.coordinatorKillPeriod = coordinatorKillPeriod;
     this.coordinatorKillDurationToRetain = coordinatorKillDurationToRetain;
     this.coordinatorSupervisorKillPeriod = coordinatorSupervisorKillPeriod;
@@ -102,6 +113,10 @@ public class TestDruidCoordinatorConfig extends DruidCoordinatorConfig
     this.httpLoadQueuePeonHostTimeout = httpLoadQueuePeonHostTimeout;
     this.httpLoadQueuePeonBatchSize = httpLoadQueuePeonBatchSize;
     this.curatorLoadQueuePeonNumCallbackThreads = curatorLoadQueuePeonNumCallbackThreads;
+    this.coordinatorPrimaryReplicantLoaderPeriod = coordinatorPrimaryReplicantLoaderPeriod;
+    this.loadPrimaryReplicantSeparately = loadPrimaryReplicantSeparately;
+    this.dutiesRunnableExecutorThreadPoolSize = dutiesRunnableExecutorThreadPoolSize;
+    this.coordinatorKillBufferPeriod = coordinatorKillBufferPeriod;
   }
 
   @Override
@@ -111,9 +126,21 @@ public class TestDruidCoordinatorConfig extends DruidCoordinatorConfig
   }
 
   @Override
+  public boolean isLoadPrimaryReplicantSeparately()
+  {
+    return loadPrimaryReplicantSeparately;
+  }
+
+  @Override
   public Duration getCoordinatorPeriod()
   {
     return coordinatorPeriod;
+  }
+
+  @Override
+  public Duration getCoordinatorPrimaryReplicantLoaderPeriod()
+  {
+    return coordinatorPrimaryReplicantLoaderPeriod;
   }
 
   @Override
@@ -254,12 +281,31 @@ public class TestDruidCoordinatorConfig extends DruidCoordinatorConfig
     return httpLoadQueuePeonBatchSize;
   }
 
+  @Override
+  public int getDutiesRunnableExecutorThreadPoolSize()
+  {
+    return dutiesRunnableExecutorThreadPoolSize;
+  }
+
+  @Override
+  public boolean getCoordinatorKillOn()
+  {
+    return coordinatorKillOn;
+  }
+
+  @Override
+  public Duration getCoordinatorKillBufferPeriod()
+  {
+    return coordinatorKillBufferPeriod;
+  }
+
   public static class Builder
   {
     private static final Duration DEFAULT_COORDINATOR_START_DELAY = new Duration("PT300s");
     private static final Duration DEFAULT_COORDINATOR_PERIOD = new Duration("PT60s");
     private static final Duration DEFAULT_COORDINATOR_INDEXING_PERIOD = new Duration("PT1800s");
     private static final Duration DEFAULT_METADATA_STORE_MANAGEMENT_PERIOD = new Duration("PT3600s");
+    private static final boolean DEFAULT_COORDINATOR_KILL_ON = false;
     private static final Duration DEFAULT_COORDINATOR_KILL_PERIOD = new Duration("PT86400s");
     private static final Duration DEFAULT_COORDINATOR_KILL_DURATION_TO_RETAION = new Duration("PT7776000s");
     private static final boolean DEFAULT_COORDINATOR_KILL_IGNORE_DURATION_TO_RETAIN = false;
@@ -281,12 +327,16 @@ public class TestDruidCoordinatorConfig extends DruidCoordinatorConfig
     private static final boolean DEFAULT_COMPACTION_SKIP_LOCKED_INTERVALS = true;
     private static final Duration DEFAULT_COORDINATOR_AUDIT_KILL_PERIOD = new Duration("PT86400s");
     private static final Duration DEFAULT_COORDINATOR_AUTIT_KILL_DURATION_TO_RETAIN = new Duration("PT7776000s");
-
+    private static final Duration DEFAULT_COORDINATOR_PRIMARY_REPLICANT_LOADER_PERIOD = new Duration("PT60s");
+    private static final boolean DEFAULT_LOAD_PRIMARY_REPLICANT_SEPARATELY = false;
+    private static final int DEFAULT_DUTIES_RUNNABLE_EXECUTOR_THREAD_POOL_SIZE = 1;
+    private static final Duration DEFAULT_COORDINATOR_KILL_BUFFER_PERIOD = new Duration("PT86400s");
 
     private Duration coordinatorStartDelay;
     private Duration coordinatorPeriod;
     private Duration coordinatorIndexingPeriod;
     private Duration metadataStoreManagementPeriod;
+    private Boolean coordinatorKillOn;
     private Duration coordinatorKillPeriod;
     private Duration coordinatorKillDurationToRetain;
     private Boolean coordinatorKillIgnoreDurationToRetain;
@@ -308,6 +358,10 @@ public class TestDruidCoordinatorConfig extends DruidCoordinatorConfig
     private Boolean compactionSkippedLockedIntervals;
     private Duration coordinatorAuditKillPeriod;
     private Duration coordinatorAuditKillDurationToRetain;
+    private Duration coordinatorPrimaryReplicantLoaderPeriod;
+    private Boolean loadPrimaryReplicantSeparately;
+    private Integer dutiesRunnableExecutorThreadPoolSize;
+    private Duration coordinatorKillBufferPeriod;
 
     public Builder()
     {
@@ -334,6 +388,12 @@ public class TestDruidCoordinatorConfig extends DruidCoordinatorConfig
     public Builder withMetadataStoreManagementPeriod(Duration metadataStoreManagementPeriod)
     {
       this.metadataStoreManagementPeriod = metadataStoreManagementPeriod;
+      return this;
+    }
+
+    public Builder withCoordinatorKillOn(Boolean coordinatorKillOn)
+    {
+      this.coordinatorKillOn = coordinatorKillOn;
       return this;
     }
 
@@ -463,6 +523,30 @@ public class TestDruidCoordinatorConfig extends DruidCoordinatorConfig
       return this;
     }
 
+    public Builder withCoordinatorPrimaryReplicantLoaderPeriod(Duration coordinatorPrimaryReplicantLoaderPeriod)
+    {
+      this.coordinatorPrimaryReplicantLoaderPeriod = coordinatorPrimaryReplicantLoaderPeriod;
+      return this;
+    }
+
+    public Builder withLoadPrimaryReplicantSeparately(boolean loadPrimaryReplicantSeparately)
+    {
+      this.loadPrimaryReplicantSeparately = loadPrimaryReplicantSeparately;
+      return this;
+    }
+
+    public Builder withDutiesRunnableExecutorThreadPoolSize(int dutiesRunnableExecutorThreadPoolSize)
+    {
+      this.dutiesRunnableExecutorThreadPoolSize = dutiesRunnableExecutorThreadPoolSize;
+      return this;
+    }
+
+    public Builder withCoordinatorKillBufferPeriod(Duration coordinatorKillBufferPeriod)
+    {
+      this.coordinatorKillBufferPeriod = coordinatorKillBufferPeriod;
+      return this;
+    }
+
     public TestDruidCoordinatorConfig build()
     {
       return new TestDruidCoordinatorConfig(
@@ -471,6 +555,7 @@ public class TestDruidCoordinatorConfig extends DruidCoordinatorConfig
           coordinatorIndexingPeriod == null ? DEFAULT_COORDINATOR_INDEXING_PERIOD : coordinatorIndexingPeriod,
           metadataStoreManagementPeriod == null ? DEFAULT_METADATA_STORE_MANAGEMENT_PERIOD : metadataStoreManagementPeriod,
           loadTimeoutDelay == null ? DEFAULT_LOAD_TIMEOUT_DELAY : loadTimeoutDelay,
+          coordinatorKillOn == null ? DEFAULT_COORDINATOR_KILL_ON : coordinatorKillOn,
           coordinatorKillPeriod == null ? DEFAULT_COORDINATOR_KILL_PERIOD : coordinatorKillPeriod,
           coordinatorKillDurationToRetain == null ? DEFAULT_COORDINATOR_KILL_DURATION_TO_RETAION : coordinatorKillDurationToRetain,
           coordinatorSupervisorKillPeriod == null ? DEFAULT_COORDINATOR_SUPERVISOR_KILL_PERIOD : coordinatorSupervisorKillPeriod,
@@ -491,9 +576,14 @@ public class TestDruidCoordinatorConfig extends DruidCoordinatorConfig
           httpLoadQueuePeonHostTimeout == null ? DEFAULT_HTTP_LOAD_QUEUE_PEON_HOST_TIMEOUT : httpLoadQueuePeonHostTimeout,
           httpLoadQueuePeonBatchSize == null ? DEFAULT_HTTP_LOAD_QUEUE_PEON_BATCH_SIZE : httpLoadQueuePeonBatchSize,
           curatorLoadQueuePeonNumCallbackThreads == null ? DEFAULT_CURATOR_LOAD_QUEUE_PEON_NUM_CALLBACK_THREADS
-                                                         : curatorLoadQueuePeonNumCallbackThreads
+                                                         : curatorLoadQueuePeonNumCallbackThreads,
+          coordinatorPrimaryReplicantLoaderPeriod == null ? DEFAULT_COORDINATOR_PRIMARY_REPLICANT_LOADER_PERIOD : coordinatorPrimaryReplicantLoaderPeriod,
+          loadPrimaryReplicantSeparately == null ? DEFAULT_LOAD_PRIMARY_REPLICANT_SEPARATELY : loadPrimaryReplicantSeparately,
+          dutiesRunnableExecutorThreadPoolSize == null ? DEFAULT_DUTIES_RUNNABLE_EXECUTOR_THREAD_POOL_SIZE : dutiesRunnableExecutorThreadPoolSize,
+          coordinatorKillBufferPeriod == null ? DEFAULT_COORDINATOR_KILL_BUFFER_PERIOD : coordinatorKillBufferPeriod
       );
     }
 
   }
+
 }

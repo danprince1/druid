@@ -327,7 +327,7 @@ public class LoadQueuePeonTest extends CuratorTestBase
         Execs.singleThreaded("test_load_queue_peon-%d"),
         // set time-out to 1 ms so that LoadQueuePeon will fail the assignment quickly
         new TestDruidCoordinatorConfig.Builder()
-            .withLoadTimeoutDelay(new Duration(1))
+            .withLoadTimeoutDelay(new Duration("PT1S"))
             .withCoordinatorKillMaxSegments(10)
             .withLoadQueuePeonRepeatDelay(new Duration("PT1s"))
             .withCoordinatorKillIgnoreDurationToRetain(false)

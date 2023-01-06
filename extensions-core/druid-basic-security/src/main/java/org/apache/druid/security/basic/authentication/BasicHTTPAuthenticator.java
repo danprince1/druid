@@ -25,6 +25,8 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.annotation.JsonTypeName;
 import com.google.inject.Provider;
 import org.apache.druid.java.util.common.logger.Logger;
+import org.apache.druid.java.util.emitter.service.AuditEvent;
+import org.apache.druid.java.util.emitter.service.ServiceEmitter;
 import org.apache.druid.metadata.PasswordProvider;
 import org.apache.druid.security.basic.BasicAuthDBConfig;
 import org.apache.druid.security.basic.BasicAuthUtils;
@@ -60,6 +62,7 @@ public class BasicHTTPAuthenticator implements Authenticator
   private final BasicAuthDBConfig dbConfig;
   private final CredentialsValidator credentialsValidator;
   private final boolean skipOnFailure;
+  private final ServiceEmitter emitter;
 
   @JsonCreator
   public BasicHTTPAuthenticator(
@@ -72,7 +75,8 @@ public class BasicHTTPAuthenticator implements Authenticator
       @JsonProperty("cacheNotificationTimeout") Long cacheNotificationTimeout,
       @JsonProperty("credentialIterations") Integer credentialIterations,
       @JsonProperty("skipOnFailure") Boolean skipOnFailure,
-      @JsonProperty("credentialsValidator") CredentialsValidator credentialsValidator
+      @JsonProperty("credentialsValidator") CredentialsValidator credentialsValidator,
+      @JacksonInject ServiceEmitter emitter
   )
   {
     this.name = name;
@@ -93,6 +97,7 @@ public class BasicHTTPAuthenticator implements Authenticator
       this.credentialsValidator = credentialsValidator;
     }
     this.skipOnFailure = skipOnFailure == null ? false : skipOnFailure;
+    this.emitter = emitter;
   }
 
   @Override
@@ -166,6 +171,17 @@ public class BasicHTTPAuthenticator implements Authenticator
     {
       HttpServletResponse httpResp = (HttpServletResponse) servletResponse;
 
+      String authenticatorHint = ((HttpServletRequest) servletRequest).getHeader("X-DRUID-AUTHENTICATOR-HINT");
+      if (null != authenticatorHint && !authenticatorHint.equals(name)) {
+        LOG.debug(
+            "Client supplied authenticator hint [%s] does not match authenticator name [%s]. Moving on to next filter",
+            authenticatorHint,
+            name
+        );
+        filterChain.doFilter(servletRequest, servletResponse);
+        return;
+      }
+
       String encodedUserSecret = BasicAuthUtils.getEncodedUserSecretFromHttpReq((HttpServletRequest) servletRequest);
       if (encodedUserSecret == null) {
         // Request didn't have HTTP Basic auth credentials, move on to the next filter
@@ -202,6 +218,12 @@ public class BasicHTTPAuthenticator implements Authenticator
             authorizerName,
             user,
             password
+        );
+        emitter.emit(
+            new AuditEvent.Builder()
+                .setDimension("authenticator", name)
+                .setDimension("result", null == authenticationResult ? "FAIL" : "PASS")
+                .build(user, AuditEvent.EventType.AUTHENTICATION_RESULT)
         );
         if (authenticationResult != null) {
           servletRequest.setAttribute(AuthConfig.DRUID_AUTHENTICATION_RESULT, authenticationResult);

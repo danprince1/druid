@@ -24,7 +24,6 @@ import org.apache.druid.indexing.overlord.IndexerMetadataStorageCoordinator;
 import org.apache.druid.java.util.emitter.service.ServiceEmitter;
 import org.apache.druid.java.util.emitter.service.ServiceEventBuilder;
 import org.apache.druid.metadata.MetadataSupervisorManager;
-import org.apache.druid.metadata.TestSupervisorSpec;
 import org.apache.druid.server.coordinator.DruidCoordinatorRuntimeParams;
 import org.apache.druid.server.coordinator.TestDruidCoordinatorConfig;
 import org.joda.time.Duration;
@@ -48,9 +47,6 @@ public class KillDatasourceMetadataTest
 
   @Mock
   private DruidCoordinatorRuntimeParams mockDruidCoordinatorRuntimeParams;
-
-  @Mock
-  private TestSupervisorSpec mockKinesisSupervisorSpec;
 
   @Mock
   private ServiceEmitter mockServiceEmitter;

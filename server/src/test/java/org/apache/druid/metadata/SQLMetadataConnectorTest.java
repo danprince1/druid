@@ -28,6 +28,7 @@ import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
+import org.skife.jdbi.v2.Batch;
 import org.skife.jdbi.v2.DBI;
 import org.skife.jdbi.v2.Handle;
 import org.skife.jdbi.v2.tweak.HandleCallback;
@@ -38,6 +39,7 @@ import java.sql.Statement;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Locale;
 
 
 public class SQLMetadataConnectorTest
@@ -94,7 +96,7 @@ public class SQLMetadataConnectorTest
             for (String column : Arrays.asList("type", "group_id")) {
               Assert.assertTrue(
                   StringUtils.format("Tasks table column %s was not created!", column),
-                  connector.tableContainsColumn(handle, taskTable, column)
+                  connector.tableHasColumn(taskTable, column)
               );
             }
 
@@ -106,6 +108,45 @@ public class SQLMetadataConnectorTest
     for (String table : tables) {
       dropTable(table);
     }
+  }
+
+  @Test
+  public void testAlterSegmentTableAddLastUpdated()
+  {
+    connector.createSegmentTable();
+
+    // Drop column last_updated to bring us in line with pre-upgrade state
+    derbyConnectorRule.getConnector().retryWithHandle(
+        new HandleCallback<Void>()
+        {
+          @Override
+          public Void withHandle(Handle handle)
+          {
+            final Batch batch = handle.createBatch();
+            batch.add(
+                StringUtils.format(
+                    "ALTER TABLE %1$s DROP COLUMN LAST_UPDATED",
+                    derbyConnectorRule.metadataTablesConfigSupplier()
+                                      .get()
+                                      .getSegmentsTable()
+                                      .toUpperCase(Locale.ENGLISH)
+                )
+            );
+            batch.execute();
+            return null;
+          }
+        }
+    );
+    Assert.assertFalse(connector.tableHasColumn(
+        derbyConnectorRule.metadataTablesConfigSupplier().get().getSegmentsTable(),
+        "LAST_UPDATED"
+    ));
+
+    connector.alterSegmentTableAddLastUpdated();
+    Assert.assertTrue(connector.tableHasColumn(
+        derbyConnectorRule.metadataTablesConfigSupplier().get().getSegmentsTable(),
+        "LAST_UPDATED"
+    ));
   }
 
   @Test
@@ -259,6 +300,45 @@ public class SQLMetadataConnectorTest
     BasicDataSource dataSource = testSQLMetadataConnector.getDatasource();
     Assert.assertEquals(dataSource.getMaxConnLifetimeMillis(), 1200000);
     Assert.assertEquals((long) dataSource.getDefaultQueryTimeout(), 30000);
+  }
+
+  /**
+   * This is a test for the upgrade path where a cluster is upgrading from a version that did not have used_flag_last_updated
+   * in the segments table.
+   */
+  @Test
+  public void testAlterSegmentTableAddLastUsed()
+  {
+    connector.createSegmentTable();
+
+    // Drop column used_flag_last_updated to bring us in line with pre-upgrade state
+    derbyConnectorRule.getConnector().retryWithHandle(
+        new HandleCallback<Void>()
+        {
+          @Override
+          public Void withHandle(Handle handle)
+          {
+            final Batch batch = handle.createBatch();
+            batch.add(
+                StringUtils.format(
+                    "ALTER TABLE %1$s DROP COLUMN USED_FLAG_LAST_UPDATED",
+                    derbyConnectorRule.metadataTablesConfigSupplier()
+                                      .get()
+                                      .getSegmentsTable()
+                                      .toUpperCase(Locale.ENGLISH)
+                )
+            );
+            batch.execute();
+            return null;
+          }
+        }
+    );
+
+    connector.alterSegmentTableAddUsedFlagLastUpdated();
+    connector.tableHasColumn(
+        derbyConnectorRule.metadataTablesConfigSupplier().get().getSegmentsTable(),
+        "USED_FLAG_LAST_UPDATED"
+    );
   }
 
   private boolean verifyTaskTypeAndGroupId(String table, String id, String type, String groupId)

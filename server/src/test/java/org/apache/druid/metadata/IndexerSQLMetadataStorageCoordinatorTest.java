@@ -377,33 +377,15 @@ public class IndexerSQLMetadataStorageCoordinatorTest
                 public Integer withHandle(Handle handle)
                 {
                   String request = StringUtils.format(
-                      "UPDATE %s SET used = false WHERE id = :id",
+                      "UPDATE %s SET used = false, used_flag_last_updated=:used_flag_last_updated, last_updated=:last_updated WHERE id = :id",
                       derbyConnectorRule.metadataTablesConfigSupplier().get().getSegmentsTable()
                   );
-                  return handle.createStatement(request).bind("id", segment.getId().toString()).execute();
-                }
-              }
-          )
-      );
-    }
-  }
-
-  private void markAllSegmentsUsed(Set<DataSegment> segments)
-  {
-    for (final DataSegment segment : segments) {
-      Assert.assertEquals(
-          1,
-          (int) derbyConnector.getDBI().<Integer>withHandle(
-              new HandleCallback<Integer>()
-              {
-                @Override
-                public Integer withHandle(Handle handle)
-                {
-                  String request = StringUtils.format(
-                      "UPDATE %s SET used = true WHERE id = :id",
-                      derbyConnectorRule.metadataTablesConfigSupplier().get().getSegmentsTable()
-                  );
-                  return handle.createStatement(request).bind("id", segment.getId().toString()).execute();
+                  String now = DateTimes.nowUtc().toString();
+                  return handle.createStatement(request)
+                               .bind("id", segment.getId().toString())
+                               .bind("used_flag_last_updated", now)
+                               .bind("last_updated", now)
+                               .execute();
                 }
               }
           )
@@ -473,23 +455,26 @@ public class IndexerSQLMetadataStorageCoordinatorTest
           {
             PreparedBatch preparedBatch = handle.prepareBatch(
                 StringUtils.format(
-                    "INSERT INTO %1$s (id, dataSource, created_date, start, %2$send%2$s, partitioned, version, used, payload) "
-                    + "VALUES (:id, :dataSource, :created_date, :start, :end, :partitioned, :version, :used, :payload)",
+                    "INSERT INTO %1$s (id, dataSource, created_date, start, %2$send%2$s, partitioned, version, used, payload, used_flag_last_updated, last_updated) "
+                    + "VALUES (:id, :dataSource, :created_date, :start, :end, :partitioned, :version, :used, :payload, :used_flag_last_updated, :last_updated)",
                     table,
                     derbyConnector.getQuoteString()
                 )
             );
+            String now = DateTimes.nowUtc().toString();
             for (DataSegment segment : dataSegments) {
               preparedBatch.add()
                            .bind("id", segment.getId().toString())
                            .bind("dataSource", segment.getDataSource())
-                           .bind("created_date", DateTimes.nowUtc().toString())
+                           .bind("created_date", now)
                            .bind("start", segment.getInterval().getStart().toString())
                            .bind("end", segment.getInterval().getEnd().toString())
-                           .bind("partitioned", (segment.getShardSpec() instanceof NoneShardSpec) ? false : true)
+                           .bind("partitioned", !(segment.getShardSpec() instanceof NoneShardSpec))
                            .bind("version", segment.getVersion())
                            .bind("used", true)
-                           .bind("payload", mapper.writeValueAsBytes(segment));
+                           .bind("payload", mapper.writeValueAsBytes(segment))
+                           .bind("used_flag_last_updated", now)
+                           .bind("last_updated", now);
             }
 
             final int[] affectedRows = preparedBatch.execute();
@@ -823,9 +808,7 @@ public class IndexerSQLMetadataStorageCoordinatorTest
         retrieveUsedSegmentIds()
     );
 
-    DataSegment nonExistingSegment = defaultSegment4;
-
-    Set<DataSegment> dropSegments = ImmutableSet.of(existingSegment1, nonExistingSegment);
+    Set<DataSegment> dropSegments = ImmutableSet.of(existingSegment1, defaultSegment4);
 
     final SegmentPublishResult result1 = coordinator.announceHistoricalSegments(
         SEGMENTS,
@@ -1832,13 +1815,13 @@ public class IndexerSQLMetadataStorageCoordinatorTest
     //        used segment: version = A, id = 0,1,2
     //        unused segment: version = B, id = 0
     List<String> pendings = retrievePendingSegmentIds();
-    Assert.assertTrue(pendings.size() == 4);
+    Assert.assertEquals(4, pendings.size());
 
     List<String> used = retrieveUsedSegmentIds();
-    Assert.assertTrue(used.size() == 3);
+    Assert.assertEquals(3, used.size());
 
     List<String> unused = retrieveUnusedSegmentIds();
-    Assert.assertTrue(unused.size() == 1);
+    Assert.assertEquals(1, unused.size());
 
     // Simulate one more append load
     final SegmentIdWithShardSpec identifier4 = coordinator.allocatePendingSegment(
@@ -1876,7 +1859,7 @@ public class IndexerSQLMetadataStorageCoordinatorTest
     Assert.assertEquals("ds_2017-01-01T00:00:00.000Z_2017-02-01T00:00:00.000Z_A_3", ids.get(3));
 
   }
-  
+
   @Test
   public void testNoPendingSegmentsAndOneUsedSegment()
   {
@@ -1913,7 +1896,7 @@ public class IndexerSQLMetadataStorageCoordinatorTest
         true
     );
     Assert.assertEquals("ds_2017-01-01T00:00:00.000Z_2017-02-01T00:00:00.000Z_A_1", identifier.toString());
-    
+
   }
 
 

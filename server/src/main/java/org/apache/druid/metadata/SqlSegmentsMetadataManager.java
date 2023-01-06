@@ -25,14 +25,13 @@ import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Supplier;
 import com.google.common.base.Throwables;
-import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.Iterables;
 import com.google.common.collect.Iterators;
 import com.google.common.collect.Lists;
 import com.google.common.util.concurrent.Futures;
 import com.google.errorprone.annotations.concurrent.GuardedBy;
 import com.google.inject.Inject;
 import org.apache.druid.client.DataSourcesSnapshot;
+import org.apache.druid.client.DataSourcesSnapshotFactory;
 import org.apache.druid.client.ImmutableDruidDataSource;
 import org.apache.druid.guice.ManageLifecycle;
 import org.apache.druid.java.util.common.DateTimes;
@@ -55,17 +54,18 @@ import org.joda.time.DateTime;
 import org.joda.time.Duration;
 import org.joda.time.Interval;
 import org.skife.jdbi.v2.BaseResultSetMapper;
+import org.skife.jdbi.v2.Batch;
 import org.skife.jdbi.v2.FoldController;
 import org.skife.jdbi.v2.Handle;
 import org.skife.jdbi.v2.StatementContext;
 import org.skife.jdbi.v2.TransactionCallback;
 import org.skife.jdbi.v2.TransactionStatus;
-import org.skife.jdbi.v2.tweak.ResultSetMapper;
+import org.skife.jdbi.v2.tweak.HandleCallback;
 
 import javax.annotation.Nullable;
+
 import java.io.IOException;
 import java.sql.ResultSet;
-import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
@@ -76,6 +76,8 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
@@ -101,7 +103,7 @@ public class SqlSegmentsMetadataManager implements SegmentsMetadataManager
   static class PeriodicDatabasePoll implements DatabasePoll
   {
     /**
-     * This future allows to wait until {@link #dataSourcesSnapshot} is initialized in the first {@link #poll()}
+     * This future allows us to wait until {@link #dataSourcesSnapshot} is initialized in the first {@link #poll()}
      * happening since {@link #startPollingDatabasePeriodically()} is called for the first time, or since the last
      * visible (in happens-before terms) call to {@link #startPollingDatabasePeriodically()} in case of Coordinator's
      * leadership changes.
@@ -152,6 +154,7 @@ public class SqlSegmentsMetadataManager implements SegmentsMetadataManager
   private final Duration periodicPollDelay;
   private final Supplier<MetadataStorageTablesConfig> dbTables;
   private final SQLMetadataConnector connector;
+  private final DataSourcesSnapshotFactory snapshotFactory;
 
   /**
    * This field is made volatile to avoid "ghost secondary reads" that may result in NPE, see
@@ -229,18 +232,22 @@ public class SqlSegmentsMetadataManager implements SegmentsMetadataManager
   @GuardedBy("startStopPollLock")
   private @Nullable ScheduledExecutorService exec = null;
 
+  private Future<?> usedFlagLastUpdatedPopulationFuture;
+
   @Inject
   public SqlSegmentsMetadataManager(
       ObjectMapper jsonMapper,
       Supplier<SegmentsMetadataManagerConfig> config,
       Supplier<MetadataStorageTablesConfig> dbTables,
-      SQLMetadataConnector connector
+      SQLMetadataConnector connector,
+      DataSourcesSnapshotFactory snapshotFactory
   )
   {
     this.jsonMapper = jsonMapper;
     this.periodicPollDelay = config.get().getPollDuration().toStandardDuration();
     this.dbTables = dbTables;
     this.connector = connector;
+    this.snapshotFactory = snapshotFactory;
   }
 
   /**
@@ -311,6 +318,110 @@ public class SqlSegmentsMetadataManager implements SegmentsMetadataManager
     finally {
       lock.unlock();
     }
+  }
+
+  @Override
+  public void stopAsyncUsedFlagLastUpdatedUpdate()
+  {
+    if (!usedFlagLastUpdatedPopulationFuture.isDone() && !usedFlagLastUpdatedPopulationFuture.isCancelled()) {
+      usedFlagLastUpdatedPopulationFuture.cancel(true);
+    }
+  }
+
+  @Override
+  public void populateUsedFlagLastUpdatedAsync()
+  {
+    ExecutorService executorService = Executors.newSingleThreadExecutor();
+    usedFlagLastUpdatedPopulationFuture = executorService.submit(
+        () -> populateUsedFlagLastUpdated()
+    );
+  }
+
+  /**
+   * Populate used_flag_last_updated for unused segments whose current value for said column is NULL
+   *
+   * The updates are made incrementally.
+   */
+  @VisibleForTesting
+  void populateUsedFlagLastUpdated()
+  {
+    String segmentsTable = getSegmentsTable();
+    log.info(
+        "Populating used_flag_last_updated with non-NULL values for unused segments in [%s]",
+        segmentsTable
+    );
+
+    int limit = 100;
+    int totalUpdatedEntries = 0;
+
+    while (true) {
+      List<String> segmentsToUpdate = new ArrayList<>(100);
+      try {
+        connector.retryWithHandle(
+            new HandleCallback<Void>()
+            {
+              @Override
+              public Void withHandle(Handle handle)
+              {
+                segmentsToUpdate.addAll(handle.createQuery(
+                    StringUtils.format(
+                        "SELECT id FROM %1$s WHERE used_flag_last_updated IS NULL and used = :used %2$s",
+                        segmentsTable,
+                        connector.limitClause(limit)
+                    )
+                ).bind("used", false).mapTo(String.class).list());
+                return null;
+              }
+            }
+        );
+
+        if (segmentsToUpdate.isEmpty()) {
+          // We have no segments to process
+          break;
+        }
+
+        connector.retryWithHandle(
+            new HandleCallback<Void>()
+            {
+              @Override
+              public Void withHandle(Handle handle)
+              {
+                Batch updateBatch = handle.createBatch();
+                String sql = "UPDATE %1$s SET used_flag_last_updated = '%2$s' WHERE id = '%3$s'";
+                String now = DateTimes.nowUtc().toString();
+                for (String id : segmentsToUpdate) {
+                  updateBatch.add(StringUtils.format(sql, segmentsTable, now, id));
+                }
+                updateBatch.execute();
+                return null;
+              }
+            }
+        );
+      }
+      catch (Exception e) {
+        log.warn(e, "Population of used_flag_last_updated in [%s] has failed. There may be unused segments with"
+                    + " NULL values for used_flag_last_updated that won't be killed!", segmentsTable);
+        return;
+      }
+
+      totalUpdatedEntries += segmentsToUpdate.size();
+      log.info("Updated a batch of %d rows in [%s] with a valid used_flag_last_updated date",
+               segmentsToUpdate.size(),
+               segmentsTable
+      );
+      try {
+        Thread.sleep(10000);
+      }
+      catch (InterruptedException e) {
+        log.info("Interrupted, exiting!");
+        Thread.currentThread().interrupt();
+      }
+    }
+    log.info(
+        "Finished updating [%s] with a valid used_flag_last_updated date. %d rows updated",
+        segmentsTable,
+        totalUpdatedEntries
+    );
   }
 
   private Runnable createPollTaskForStartOrder(long startOrder, PeriodicDatabasePoll periodicDatabasePoll)
@@ -518,10 +629,16 @@ public class SqlSegmentsMetadataManager implements SegmentsMetadataManager
   public boolean markSegmentAsUsed(final String segmentId)
   {
     try {
+      String now = DateTimes.nowUtc().toString();
       int numUpdatedDatabaseEntries = connector.getDBI().withHandle(
           (Handle handle) -> handle
-              .createStatement(StringUtils.format("UPDATE %s SET used=true WHERE id = :id", getSegmentsTable()))
+              .createStatement(StringUtils.format(
+                  "UPDATE %s SET used=true, used_flag_last_updated=:used_flag_last_updated, last_updated=:last_updated WHERE id = :id",
+                  getSegmentsTable()
+              ))
               .bind("id", segmentId)
+              .bind("used_flag_last_updated", now)
+              .bind("last_updated", now)
               .execute()
       );
       // Unlike bulk markAsUsed methods: markAsUsedAllNonOvershadowedSegmentsInDataSource(),
@@ -742,7 +859,7 @@ public class SqlSegmentsMetadataManager implements SegmentsMetadataManager
   }
 
   /**
-   * This method does not update {@link #dataSourcesSnapshot}, see the comments in {@link #doPoll()} about
+   * This method does not update {@link #dataSourcesSnapshot}, see the comments in {@link #poll()} about
    * snapshot update. The update of the segment's state will be reflected after the next {@link DatabasePoll}.
    */
   @Override
@@ -795,6 +912,13 @@ public class SqlSegmentsMetadataManager implements SegmentsMetadataManager
   }
 
   @Override
+  public DataSourcesSnapshot getSnapshotOfDataSourcesWithAllUsedSegments()
+  {
+    useLatestIfWithinDelayOrPerformNewDatabasePoll();
+    return dataSourcesSnapshot;
+  }
+
+  @Override
   public Collection<ImmutableDruidDataSource> getImmutableDataSourcesWithAllUsedSegments()
   {
     return getSnapshotOfDataSourcesWithAllUsedSegments().getDataSourcesWithAllUsedSegments();
@@ -804,13 +928,6 @@ public class SqlSegmentsMetadataManager implements SegmentsMetadataManager
   public Set<SegmentId> getOvershadowedSegments()
   {
     return getSnapshotOfDataSourcesWithAllUsedSegments().getOvershadowedSegments();
-  }
-
-  @Override
-  public DataSourcesSnapshot getSnapshotOfDataSourcesWithAllUsedSegments()
-  {
-    useLatestIfWithinDelayOrPerformNewDatabasePoll();
-    return dataSourcesSnapshot;
   }
 
   @VisibleForTesting
@@ -873,106 +990,17 @@ public class SqlSegmentsMetadataManager implements SegmentsMetadataManager
   {
     // See the comment to the pollLock field, explaining this synchronized block
     synchronized (pollLock) {
-      doPoll();
+      log.debug("Starting polling of segment table");
+      // dataSourcesSnapshot is updated only here and the DataSourcesSnapshot object is immutable. If data sources or
+      // segments are marked as used or unused directly (via markAs...() methods in SegmentsMetadataManager), the
+      // dataSourcesSnapshot can become invalid until the next database poll.
+      // DataSourcesSnapshot computes the overshadowed segments, which makes it an expensive operation if the
+      // snapshot was invalidated on each segment mark as unused or used, especially if a user issues a lot of single
+      // segment mark calls in rapid succession. So the snapshot update is not done outside of database poll at this time.
+      // Updates outside of database polls were primarily for the user experience, so users would immediately see the
+      // effect of a segment mark call reflected in MetadataResource API calls.
+      this.dataSourcesSnapshot = snapshotFactory.create(this.dataSourcesSnapshot);
     }
-  }
-
-  /** This method is extracted from {@link #poll()} solely to reduce code nesting. */
-  @GuardedBy("pollLock")
-  private void doPoll()
-  {
-    log.debug("Starting polling of segment table");
-
-    // some databases such as PostgreSQL require auto-commit turned off
-    // to stream results back, enabling transactions disables auto-commit
-    //
-    // setting connection to read-only will allow some database such as MySQL
-    // to automatically use read-only transaction mode, further optimizing the query
-    final List<DataSegment> segments = connector.inReadOnlyTransaction(
-        new TransactionCallback<List<DataSegment>>()
-        {
-          @Override
-          public List<DataSegment> inTransaction(Handle handle, TransactionStatus status)
-          {
-            return handle
-                .createQuery(StringUtils.format("SELECT payload FROM %s WHERE used=true", getSegmentsTable()))
-                .setFetchSize(connector.getStreamingFetchSize())
-                .map(
-                    new ResultSetMapper<DataSegment>()
-                    {
-                      @Override
-                      public DataSegment map(int index, ResultSet r, StatementContext ctx) throws SQLException
-                      {
-                        try {
-                          DataSegment segment = jsonMapper.readValue(r.getBytes("payload"), DataSegment.class);
-                          return replaceWithExistingSegmentIfPresent(segment);
-                        }
-                        catch (IOException e) {
-                          log.makeAlert(e, "Failed to read segment from db.").emit();
-                          // If one entry in database is corrupted doPoll() should continue to work overall. See
-                          // filter by `Objects::nonNull` below in this method.
-                          return null;
-                        }
-                      }
-                    }
-                )
-                .list();
-          }
-        }
-    );
-
-    Preconditions.checkNotNull(
-        segments,
-        "Unexpected 'null' when polling segments from the db, aborting snapshot update."
-    );
-
-    // dataSourcesSnapshot is updated only here and the DataSourcesSnapshot object is immutable. If data sources or
-    // segments are marked as used or unused directly (via markAs...() methods in SegmentsMetadataManager), the
-    // dataSourcesSnapshot can become invalid until the next database poll.
-    // DataSourcesSnapshot computes the overshadowed segments, which makes it an expensive operation if the
-    // snapshot was invalidated on each segment mark as unused or used, especially if a user issues a lot of single
-    // segment mark calls in rapid succession. So the snapshot update is not done outside of database poll at this time.
-    // Updates outside of database polls were primarily for the user experience, so users would immediately see the
-    // effect of a segment mark call reflected in MetadataResource API calls.
-
-    ImmutableMap<String, String> dataSourceProperties = createDefaultDataSourceProperties();
-    if (segments.isEmpty()) {
-      log.info("No segments found in the database!");
-    } else {
-      log.info("Polled and found %,d segments in the database", segments.size());
-    }
-    dataSourcesSnapshot = DataSourcesSnapshot.fromUsedSegments(
-        Iterables.filter(segments, Objects::nonNull), // Filter corrupted entries (see above in this method).
-        dataSourceProperties
-    );
-  }
-
-  private static ImmutableMap<String, String> createDefaultDataSourceProperties()
-  {
-    return ImmutableMap.of("created", DateTimes.nowUtc().toString());
-  }
-
-  /**
-   * For the garbage collector in Java, it's better to keep new objects short-living, but once they are old enough
-   * (i. e. promoted to old generation), try to keep them alive. In {@link #poll()}, we fetch and deserialize all
-   * existing segments each time, and then replace them in {@link #dataSourcesSnapshot}. This method allows to use
-   * already existing (old) segments when possible, effectively interning them a-la {@link String#intern} or {@link
-   * com.google.common.collect.Interner}, aiming to make the majority of {@link DataSegment} objects garbage soon after
-   * they are deserialized and to die in young generation. It allows to avoid fragmentation of the old generation and
-   * full GCs.
-   */
-  private DataSegment replaceWithExistingSegmentIfPresent(DataSegment segment)
-  {
-    @MonotonicNonNull DataSourcesSnapshot dataSourcesSnapshot = this.dataSourcesSnapshot;
-    if (dataSourcesSnapshot == null) {
-      return segment;
-    }
-    @Nullable ImmutableDruidDataSource dataSource = dataSourcesSnapshot.getDataSource(segment.getDataSource());
-    if (dataSource == null) {
-      return segment;
-    }
-    DataSegment alreadyExistingSegment = dataSource.getSegment(segment.getId());
-    return alreadyExistingSegment != null ? alreadyExistingSegment : segment;
   }
 
   private String getSegmentsTable()
@@ -981,8 +1009,14 @@ public class SqlSegmentsMetadataManager implements SegmentsMetadataManager
   }
 
   @Override
-  public List<Interval> getUnusedSegmentIntervals(final String dataSource, final DateTime maxEndTime, final int limit)
+  public List<Interval> getUnusedSegmentIntervals(
+      final String dataSource,
+      final DateTime maxEndTime,
+      final int limit,
+      DateTime maxUsedFlagLastUpdatedTime
+  )
   {
+    // Note that we handle the case where used_flag_last_updated IS NULL here to allow smooth transition to Druid version that uses used_flag_last_updated column
     return connector.inReadOnlyTransaction(
         new TransactionCallback<List<Interval>>()
         {
@@ -993,7 +1027,7 @@ public class SqlSegmentsMetadataManager implements SegmentsMetadataManager
                 .createQuery(
                     StringUtils.format(
                         "SELECT start, %2$send%2$s FROM %1$s WHERE dataSource = :dataSource AND "
-                        + "%2$send%2$s <= :end AND used = false ORDER BY start, %2$send%2$s",
+                        + "%2$send%2$s <= :end AND used = false AND used_flag_last_updated IS NOT NULL AND used_flag_last_updated <= :used_flag_last_updated ORDER BY start, %2$send%2$s",
                         getSegmentsTable(),
                         connector.getQuoteString()
                     )
@@ -1002,6 +1036,7 @@ public class SqlSegmentsMetadataManager implements SegmentsMetadataManager
                 .setMaxRows(limit)
                 .bind("dataSource", dataSource)
                 .bind("end", maxEndTime.toString())
+                .bind("used_flag_last_updated", maxUsedFlagLastUpdatedTime.toString())
                 .map(
                     new BaseResultSetMapper<Interval>()
                     {

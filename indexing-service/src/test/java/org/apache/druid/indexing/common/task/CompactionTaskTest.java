@@ -643,6 +643,8 @@ public class CompactionTaskTest
             null,
             null,
             null,
+            null,
+            null,
             null
         ),
         null,
@@ -699,6 +701,8 @@ public class CompactionTaskTest
         null,
         true,
         false,
+        null,
+        null,
         null,
         null,
         null,

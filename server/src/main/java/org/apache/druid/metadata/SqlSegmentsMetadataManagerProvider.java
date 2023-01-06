@@ -23,6 +23,7 @@ package org.apache.druid.metadata;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.base.Supplier;
 import com.google.inject.Inject;
+import org.apache.druid.client.DataSourcesSnapshotFactory;
 import org.apache.druid.java.util.common.lifecycle.Lifecycle;
 
 
@@ -33,6 +34,7 @@ public class SqlSegmentsMetadataManagerProvider implements SegmentsMetadataManag
   private final Supplier<MetadataStorageTablesConfig> storageConfig;
   private final SQLMetadataConnector connector;
   private final Lifecycle lifecycle;
+  private final DataSourcesSnapshotFactory snapshotFactory;
 
   @Inject
   public SqlSegmentsMetadataManagerProvider(
@@ -40,7 +42,8 @@ public class SqlSegmentsMetadataManagerProvider implements SegmentsMetadataManag
       Supplier<SegmentsMetadataManagerConfig> config,
       Supplier<MetadataStorageTablesConfig> storageConfig,
       SQLMetadataConnector connector,
-      Lifecycle lifecycle
+      Lifecycle lifecycle,
+      DataSourcesSnapshotFactory snapshotFactory
   )
   {
     this.jsonMapper = jsonMapper;
@@ -48,6 +51,7 @@ public class SqlSegmentsMetadataManagerProvider implements SegmentsMetadataManag
     this.storageConfig = storageConfig;
     this.connector = connector;
     this.lifecycle = lifecycle;
+    this.snapshotFactory = snapshotFactory;
   }
 
   @Override
@@ -74,7 +78,8 @@ public class SqlSegmentsMetadataManagerProvider implements SegmentsMetadataManag
         jsonMapper,
         config,
         storageConfig,
-        connector
+        connector,
+        snapshotFactory
     );
   }
 }

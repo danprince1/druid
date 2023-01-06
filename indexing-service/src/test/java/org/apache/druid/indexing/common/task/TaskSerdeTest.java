@@ -271,7 +271,9 @@ public class TaskSerdeTest
                 null,
                 null,
                 null,
-                1L
+                1L,
+                365,
+                365
             )
         ),
         null
@@ -357,6 +359,8 @@ public class TaskSerdeTest
                 null,
                 null,
                 null,
+                null,
+                365,
                 null
             )
         ),

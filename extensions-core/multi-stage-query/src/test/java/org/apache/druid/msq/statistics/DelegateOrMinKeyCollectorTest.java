@@ -27,6 +27,7 @@ import org.apache.druid.frame.key.SortColumn;
 import org.apache.druid.java.util.common.ISE;
 import org.apache.druid.segment.column.ColumnType;
 import org.apache.druid.segment.column.RowSignature;
+import org.apache.druid.testing.InitializedNullHandlingTest;
 import org.hamcrest.CoreMatchers;
 import org.hamcrest.MatcherAssert;
 import org.junit.Assert;
@@ -35,7 +36,7 @@ import org.junit.Test;
 import java.util.Comparator;
 import java.util.NoSuchElementException;
 
-public class DelegateOrMinKeyCollectorTest
+public class DelegateOrMinKeyCollectorTest extends InitializedNullHandlingTest
 {
   private final ClusterBy clusterBy = new ClusterBy(ImmutableList.of(new SortColumn("x", false)), 0);
   private final RowSignature signature = RowSignature.builder().add("x", ColumnType.LONG).build();

@@ -55,10 +55,19 @@
       <scope>provided</scope>
     </dependency>
     <dependency>
+      <groupId>ch.qos.reload4j</groupId>
+      <artifactId>reload4j</artifactId>
+      <version>1.2.22</version>
+    </dependency>
+    <dependency>
       <groupId>org.apache.parquet</groupId>
       <artifactId>parquet-column</artifactId>
       <version>${parquet.version}</version>
       <exclusions>
+        <exclusion>
+          <groupId>log4j</groupId>
+          <artifactId>log4j</artifactId>
+        </exclusion>
         <exclusion>
           <groupId>commons-codec</groupId>
           <artifactId>commons-codec</artifactId>
@@ -79,6 +88,10 @@
       <version>${parquet.version}</version>
       <exclusions>
         <exclusion>
+          <groupId>log4j</groupId>
+          <artifactId>log4j</artifactId>
+        </exclusion>
+        <exclusion>
           <groupId>commons-pool</groupId>
           <artifactId>commons-pool</artifactId>
         </exclusion>
@@ -97,6 +110,10 @@
       <artifactId>parquet-hadoop</artifactId>
       <version>${parquet.version}</version>
       <exclusions>
+        <exclusion>
+          <groupId>log4j</groupId>
+          <artifactId>log4j</artifactId>
+        </exclusion>
         <exclusion>
           <groupId>commons-pool</groupId>
           <artifactId>commons-pool</artifactId>
@@ -159,6 +176,12 @@
       <groupId>org.apache.avro</groupId>
       <artifactId>avro</artifactId>
       <version>${avro.version}</version>
+      <exclusions>
+        <exclusion>
+          <groupId>log4j</groupId>
+          <artifactId>log4j</artifactId>
+        </exclusion>
+      </exclusions>
     </dependency>
     <dependency>
       <groupId>junit</groupId>
@@ -192,6 +215,10 @@
           <artifactId>hadoop-mapreduce-client-core</artifactId>
           <scope>compile</scope>
           <exclusions>
+            <exclusion>
+              <groupId>log4j</groupId>
+              <artifactId>log4j</artifactId>
+            </exclusion>
             <exclusion>
               <groupId>aopalliance</groupId>
               <artifactId>aopalliance</artifactId>

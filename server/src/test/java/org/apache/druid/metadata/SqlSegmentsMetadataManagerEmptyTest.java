@@ -57,7 +57,12 @@ public class SqlSegmentsMetadataManagerEmptyTest
         jsonMapper,
         Suppliers.ofInstance(config),
         derbyConnectorRule.metadataTablesConfigSupplier(),
-        connector
+        connector,
+        new FullDataSourcesSnapshotFactory(
+            derbyConnectorRule.metadataTablesConfigSupplier(),
+            jsonMapper,
+            connector
+        )
     );
     sqlSegmentsMetadataManager.start();
 
@@ -91,10 +96,7 @@ public class SqlSegmentsMetadataManagerEmptyTest
             .map(ImmutableDruidDataSource::getName)
             .collect(Collectors.toList())
     );
-    Assert.assertEquals(
-        null,
-        sqlSegmentsMetadataManager.getImmutableDataSourceWithUsedSegments("wikipedia")
-    );
+    Assert.assertNull(sqlSegmentsMetadataManager.getImmutableDataSourceWithUsedSegments("wikipedia"));
     Assert.assertEquals(
         ImmutableSet.of(),
         ImmutableSet.copyOf(sqlSegmentsMetadataManager.iterateAllUsedSegments())

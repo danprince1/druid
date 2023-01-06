@@ -39,6 +39,9 @@ public class KafkaEmitterConfig
   private final String alertTopic;
   @Nullable @JsonProperty("request.topic")
   private final String requestTopic;
+  @JsonProperty("audit.topic")
+  private final String auditTopic;
+
   @JsonProperty
   private final String clusterName;
   @JsonProperty("producer.config")
@@ -51,12 +54,14 @@ public class KafkaEmitterConfig
       @JsonProperty("alert.topic") String alertTopic,
       @Nullable @JsonProperty("request.topic") String requestTopic,
       @JsonProperty("clusterName") String clusterName,
-      @JsonProperty("producer.config") @Nullable Map<String, String> kafkaProducerConfig
+      @JsonProperty("producer.config") @Nullable Map<String, String> kafkaProducerConfig,
+      @JsonProperty("audit.topic") String auditTopic
   )
   {
     this.bootstrapServers = Preconditions.checkNotNull(bootstrapServers, "bootstrap.servers can not be null");
     this.metricTopic = Preconditions.checkNotNull(metricTopic, "metric.topic can not be null");
     this.alertTopic = Preconditions.checkNotNull(alertTopic, "alert.topic can not be null");
+    this.auditTopic = auditTopic;
     this.requestTopic = requestTopic;
     this.clusterName = clusterName;
     this.kafkaProducerConfig = kafkaProducerConfig == null ? ImmutableMap.of() : kafkaProducerConfig;
@@ -92,6 +97,12 @@ public class KafkaEmitterConfig
     return requestTopic;
   }
 
+  @Nullable
+  public String getAuditTopic()
+  {
+    return auditTopic;
+  }
+
   @JsonProperty
   public Map<String, String> getKafkaProducerConfig()
   {
@@ -124,6 +135,10 @@ public class KafkaEmitterConfig
       return false;
     }
 
+    if (getAuditTopic() != null ? !getAuditTopic().equals(that.getAuditTopic()) : that.getAuditTopic() != null) {
+      return false;
+    }
+
     if (getClusterName() != null ? !getClusterName().equals(that.getClusterName()) : that.getClusterName() != null) {
       return false;
     }
@@ -137,6 +152,7 @@ public class KafkaEmitterConfig
     result = 31 * result + getMetricTopic().hashCode();
     result = 31 * result + getAlertTopic().hashCode();
     result = 31 * result + (getRequestTopic() != null ? getRequestTopic().hashCode() : 0);
+    result = 31 * result + (getAuditTopic() != null ? getAuditTopic().hashCode() : 0);
     result = 31 * result + (getClusterName() != null ? getClusterName().hashCode() : 0);
     result = 31 * result + getKafkaProducerConfig().hashCode();
     return result;
@@ -150,6 +166,7 @@ public class KafkaEmitterConfig
            ", metric.topic='" + metricTopic + '\'' +
            ", alert.topic='" + alertTopic + '\'' +
            ", request.topic='" + requestTopic + '\'' +
+           ", audit.topic='" + auditTopic + '\'' +
            ", clusterName='" + clusterName + '\'' +
            ", Producer.config=" + kafkaProducerConfig +
            '}';

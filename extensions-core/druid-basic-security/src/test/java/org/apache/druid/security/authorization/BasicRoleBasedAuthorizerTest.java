@@ -32,6 +32,7 @@ import org.apache.druid.security.basic.authorization.MetadataStoreRoleProvider;
 import org.apache.druid.security.basic.authorization.db.cache.MetadataStoragePollingBasicAuthorizerCacheManager;
 import org.apache.druid.security.basic.authorization.db.updater.CoordinatorBasicAuthorizerMetadataStorageUpdater;
 import org.apache.druid.security.basic.authorization.entity.BasicAuthorizerGroupMapping;
+import org.apache.druid.server.metrics.NoopServiceEmitter;
 import org.apache.druid.server.security.Access;
 import org.apache.druid.server.security.Action;
 import org.apache.druid.server.security.AuthenticationResult;
@@ -103,7 +104,9 @@ public class BasicRoleBasedAuthorizerTest
                     null,
                     null, null,
                     null,
-                    new MetadataStoreRoleProvider(null)
+                    new MetadataStoreRoleProvider(null),
+                    new NoopServiceEmitter(),
+                    null
                 ),
                 LDAP_AUTHORIZER_NAME,
                 new BasicRoleBasedAuthorizer(
@@ -113,7 +116,9 @@ public class BasicRoleBasedAuthorizerTest
                     null,
                     null, null,
                     null,
-                    new LDAPRoleProvider(null, groupFilters)
+                    new LDAPRoleProvider(null, groupFilters),
+                    new NoopServiceEmitter(),
+                    null
                 )
             )
         ),
@@ -134,7 +139,9 @@ public class BasicRoleBasedAuthorizerTest
         null,
         null, null,
         null,
-        new MetadataStoreRoleProvider(new MetadataStoragePollingBasicAuthorizerCacheManager(updater))
+        new MetadataStoreRoleProvider(new MetadataStoragePollingBasicAuthorizerCacheManager(updater)),
+        new NoopServiceEmitter(),
+        null
     );
 
     ldapAuthorizer = new BasicRoleBasedAuthorizer(
@@ -144,7 +151,9 @@ public class BasicRoleBasedAuthorizerTest
         null,
         null, null,
         null,
-        new LDAPRoleProvider(new MetadataStoragePollingBasicAuthorizerCacheManager(updater), groupFilters)
+        new LDAPRoleProvider(new MetadataStoragePollingBasicAuthorizerCacheManager(updater), groupFilters),
+        new NoopServiceEmitter(),
+        null
     );
   }
 

@@ -24,6 +24,8 @@ import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.annotation.JsonTypeName;
 import org.apache.druid.java.util.common.IAE;
+import org.apache.druid.java.util.emitter.service.AuditEvent;
+import org.apache.druid.java.util.emitter.service.ServiceEmitter;
 import org.apache.druid.security.basic.BasicAuthDBConfig;
 import org.apache.druid.security.basic.authorization.db.cache.BasicAuthorizerCacheManager;
 import org.apache.druid.security.basic.authorization.entity.BasicAuthorizerPermission;
@@ -47,6 +49,8 @@ public class BasicRoleBasedAuthorizer implements Authorizer
   private final String name;
   private final BasicAuthDBConfig dbConfig;
   private final RoleProvider roleProvider;
+  private final ServiceEmitter emitter;
+  private final String groupMappingGroupPatternRegex;
 
   @JsonCreator
   public BasicRoleBasedAuthorizer(
@@ -57,7 +61,9 @@ public class BasicRoleBasedAuthorizer implements Authorizer
       @JsonProperty("initialAdminGroupMapping") String initialAdminGroupMapping,
       @JsonProperty("enableCacheNotifications") Boolean enableCacheNotifications,
       @JsonProperty("cacheNotificationTimeout") Long cacheNotificationTimeout,
-      @JsonProperty("roleProvider") RoleProvider roleProvider
+      @JsonProperty("roleProvider") RoleProvider roleProvider,
+      @JacksonInject ServiceEmitter emitter,
+      @JsonProperty("groupMappingGroupPatternRegex") String groupMappingGroupPatternRegex
   )
   {
     this.name = name;
@@ -76,12 +82,17 @@ public class BasicRoleBasedAuthorizer implements Authorizer
     } else {
       this.roleProvider = roleProvider;
     }
+    this.emitter = emitter;
+    this.groupMappingGroupPatternRegex = groupMappingGroupPatternRegex;
   }
 
   @Override
   @SuppressWarnings("unchecked")
   public Access authorize(AuthenticationResult authenticationResult, Resource resource, Action action)
   {
+    // Assume unauthorized unless told otherwise
+    boolean authorized = false;
+
     if (authenticationResult == null) {
       throw new IAE("authenticationResult is null where it should never be.");
     }
@@ -89,25 +100,36 @@ public class BasicRoleBasedAuthorizer implements Authorizer
     Set<String> roleNames = new HashSet<>(roleProvider.getRoles(name, authenticationResult));
     Map<String, BasicAuthorizerRole> roleMap = roleProvider.getRoleMap(name);
 
-    if (roleNames.isEmpty()) {
-      return new Access(false);
-    }
     if (roleMap == null) {
       throw new IAE("Could not load roleMap for authorizer [%s]", name);
     }
 
     for (String roleName : roleNames) {
+      if (authorized) {
+        break;
+      }
+
       BasicAuthorizerRole role = roleMap.get(roleName);
       if (role != null) {
         for (BasicAuthorizerPermission permission : role.getPermissions()) {
           if (permissionCheck(resource, action, permission)) {
-            return new Access(true);
+            authorized = true;
+            break;
           }
         }
       }
     }
 
-    return new Access(false);
+    emitter.emit(
+        new AuditEvent.Builder()
+            .setDimension("authorizer", name)
+            .setDimension("result", authorized ? "PASS" : "FAIL")
+            .setDimension("action", action.toString())
+            .setDimension("resourceName", resource.getName())
+            .setDimension("resourceType", resource.getType())
+            .build(authenticationResult.getIdentity(), AuditEvent.EventType.AUTHORIZATION_RESULT)
+    );
+    return new Access(authorized);
   }
 
   private boolean permissionCheck(Resource resource, Action action, BasicAuthorizerPermission permission)
@@ -129,5 +151,15 @@ public class BasicRoleBasedAuthorizer implements Authorizer
   public BasicAuthDBConfig getDbConfig()
   {
     return dbConfig;
+  }
+
+  public String getGroupMappingGroupPatternRegex()
+  {
+    return groupMappingGroupPatternRegex;
+  }
+
+  public boolean validateGroupPattern(String groupPattern)
+  {
+    return roleProvider.validateGroupPattern(groupPattern);
   }
 }

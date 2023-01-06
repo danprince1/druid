@@ -59,24 +59,27 @@ public class SQLMetadataStorageUpdaterJobHandler implements MetadataStorageUpdat
           {
             final PreparedBatch batch = handle.prepareBatch(
                 StringUtils.format(
-                    "INSERT INTO %1$s (id, dataSource, created_date, start, %2$send%2$s, partitioned, version, used, payload) "
-                    + "VALUES (:id, :dataSource, :created_date, :start, :end, :partitioned, :version, :used, :payload)",
+                    "INSERT INTO %1$s (id, dataSource, created_date, start, %2$send%2$s, partitioned, version, used, payload, used_flag_last_updated, last_updated) "
+                    + "VALUES (:id, :dataSource, :created_date, :start, :end, :partitioned, :version, :used, :payload, :used_flag_last_updated, :last_updated)",
                     tableName, connector.getQuoteString()
                 )
             );
+            String now = DateTimes.nowUtc().toString();
             for (final DataSegment segment : segments) {
 
               batch.add(
                   new ImmutableMap.Builder<String, Object>()
                       .put("id", segment.getId().toString())
                       .put("dataSource", segment.getDataSource())
-                      .put("created_date", DateTimes.nowUtc().toString())
+                      .put("created_date", now)
                       .put("start", segment.getInterval().getStart().toString())
                       .put("end", segment.getInterval().getEnd().toString())
                       .put("partitioned", (segment.getShardSpec() instanceof NoneShardSpec) ? false : true)
                       .put("version", segment.getVersion())
                       .put("used", true)
                       .put("payload", mapper.writeValueAsBytes(segment))
+                      .put("used_flag_last_updated", now)
+                      .put("last_updated", now)
                       .build()
               );
 

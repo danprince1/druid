@@ -26,6 +26,7 @@ import org.apache.druid.frame.key.ClusterByPartitions;
 import org.apache.druid.frame.key.RowKey;
 import org.apache.druid.frame.key.SortColumn;
 import org.apache.druid.java.util.common.Pair;
+import org.apache.druid.testing.InitializedNullHandlingTest;
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -35,7 +36,7 @@ import java.util.List;
 import java.util.NavigableMap;
 import java.util.NoSuchElementException;
 
-public class QuantilesSketchKeyCollectorTest
+public class QuantilesSketchKeyCollectorTest extends InitializedNullHandlingTest
 {
   private final ClusterBy clusterBy = new ClusterBy(ImmutableList.of(new SortColumn("x", false)), 0);
   private final Comparator<RowKey> comparator = clusterBy.keyComparator();

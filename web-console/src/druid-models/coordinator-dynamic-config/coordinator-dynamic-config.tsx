@@ -37,6 +37,7 @@ export interface CoordinatorDynamicConfig {
   decommissioningNodes?: string[];
   decommissioningMaxPercentOfMaxSegmentsToMove?: number;
   pauseCoordination?: boolean;
+  maxSegmentsToLoadPerCoordinationCycle?: number;
   maxNonPrimaryReplicantsToLoad?: number;
 }
 
@@ -254,6 +255,23 @@ export const COORDINATOR_DYNAMIC_CONFIG_FIELDS: Field<CoordinatorDynamicConfig>[
     ),
   },
   {
+    name: 'maxSegmentsToLoadPerCoordinationCycle',
+    type: 'number',
+    defaultValue: 2147483647,
+    info: (
+      <>
+        This it the maximum number of segments - both primary and non-primary replicants - that can
+        be loaded per Coordination run. The default is equivalent to there being no limit. This
+        differs from maxNonPrimaryReplicantsToLoad because it includes the count of primary
+        replicants that are loaded in the limit. An operator may want to use this configuration to
+        prevent the coordinator from spinning and loading many segments that are already loaded, but
+        appeared to be unavailable due to a temporary network issue causing some number of
+        Historical servers to have their segments go missing (or some other event that caused a
+        similar event).
+      </>
+    ),
+  },
+  {
     name: 'maxNonPrimaryReplicantsToLoad',
     type: 'number',
     defaultValue: 2147483647,
@@ -263,7 +281,9 @@ export const COORDINATOR_DYNAMIC_CONFIG_FIELDS: Field<CoordinatorDynamicConfig>[
         this limit is hit, only primary replicants will be loaded for the remainder of the cycle.
         Tuning this value lower can help reduce the delay in loading primary segments when the
         cluster has a very large number of non-primary replicants to load (such as when a single
-        historical drops out of the cluster leaving many under-replicated segments).
+        historical drops out of the cluster leaving many under-replicated segments). This
+        configuration has no effect if the value is greater than the value of
+        maxSegmentsToLoadPerCoordinationCycle
       </>
     ),
   },

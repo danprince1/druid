@@ -25,6 +25,8 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.annotation.JsonTypeName;
 import org.apache.druid.java.util.common.IAE;
 import org.apache.druid.java.util.common.logger.Logger;
+import org.apache.druid.java.util.emitter.service.AuditEvent;
+import org.apache.druid.java.util.emitter.service.ServiceEmitter;
 import org.apache.druid.security.ranger.authorizer.guice.Ranger;
 import org.apache.druid.server.security.Access;
 import org.apache.druid.server.security.Action;
@@ -53,16 +55,20 @@ public class RangerAuthorizer implements Authorizer
 
   public static final String RANGER_DRUID_SERVICETYPE = "druid";
   public static final String RANGER_DRUID_APPID = "druid";
+  public static final String RANGER_AUTHORIZER_NAME = "ranger";
 
   private final RangerBasePlugin rangerPlugin;
   private final boolean useUgi;
+  private final ServiceEmitter emitter;
 
   @JsonCreator
   public RangerAuthorizer(
       @JsonProperty("keytab") String keytab,
       @JsonProperty("principal") String principal,
       @JsonProperty("use_ugi") boolean useUgi,
-      @JacksonInject @Ranger Configuration conf)
+      @JacksonInject @Ranger Configuration conf,
+      @JacksonInject ServiceEmitter emitter
+  )
   {
     this.useUgi = useUgi;
 
@@ -80,12 +86,15 @@ public class RangerAuthorizer implements Authorizer
     rangerPlugin = new RangerBasePlugin(RANGER_DRUID_SERVICETYPE, RANGER_DRUID_APPID);
     rangerPlugin.init();
     rangerPlugin.setResultProcessor(new RangerDefaultAuditHandler());
-
+    this.emitter = emitter;
   }
 
   @Override
   public Access authorize(AuthenticationResult authenticationResult, Resource resource, Action action)
   {
+    // Start with the assumption that the user is not authorized
+    boolean authorized = false;
+
     if (authenticationResult == null) {
       throw new IAE("authenticationResult is null where it should never be.");
     }
@@ -115,10 +124,19 @@ public class RangerAuthorizer implements Authorizer
     }
 
     if (result != null && result.getIsAllowed()) {
-      return new Access(true);
+      authorized = true;
     }
 
-    return new Access(false);
+    emitter.emit(
+        new AuditEvent.Builder()
+            .setDimension("authorizer", RANGER_AUTHORIZER_NAME)
+            .setDimension("result", authorized ? "PASS" : "FAIL")
+            .setDimension("action", action.toString())
+            .setDimension("resourceName", resource.getName())
+            .setDimension("resourceType", resource.getType())
+            .build(authenticationResult.getIdentity(), AuditEvent.EventType.AUTHORIZATION_RESULT)
+    );
+    return new Access(authorized);
   }
 }
 

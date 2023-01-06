@@ -30,6 +30,7 @@ import org.apache.druid.java.util.emitter.core.Emitter;
 import org.apache.druid.java.util.emitter.core.Event;
 import org.apache.druid.java.util.emitter.core.EventMap;
 import org.apache.druid.java.util.emitter.service.AlertEvent;
+import org.apache.druid.java.util.emitter.service.AuditEvent;
 import org.apache.druid.java.util.emitter.service.ServiceMetricEvent;
 import org.apache.druid.server.log.RequestLogEvent;
 import org.apache.kafka.clients.producer.Callback;
@@ -56,6 +57,7 @@ public class KafkaEmitter implements Emitter
   private final AtomicLong alertLost;
   private final AtomicLong requestLost;
   private final AtomicLong invalidLost;
+  private final AtomicLong auditLost;
 
   private final KafkaEmitterConfig config;
   private final Producer<String, String> producer;
@@ -63,6 +65,7 @@ public class KafkaEmitter implements Emitter
   private final MemoryBoundLinkedBlockingQueue<String> metricQueue;
   private final MemoryBoundLinkedBlockingQueue<String> alertQueue;
   private final MemoryBoundLinkedBlockingQueue<String> requestQueue;
+  private final MemoryBoundLinkedBlockingQueue<String> auditQueue;
   private final ScheduledExecutorService scheduler;
 
   protected int sendInterval = DEFAULT_SEND_INTERVAL_SECONDS;
@@ -78,11 +81,13 @@ public class KafkaEmitter implements Emitter
     this.metricQueue = new MemoryBoundLinkedBlockingQueue<>(queueMemoryBound);
     this.alertQueue = new MemoryBoundLinkedBlockingQueue<>(queueMemoryBound);
     this.requestQueue = new MemoryBoundLinkedBlockingQueue<>(queueMemoryBound);
+    this.auditQueue = new MemoryBoundLinkedBlockingQueue<>(queueMemoryBound);
     this.scheduler = Executors.newScheduledThreadPool(4);
     this.metricLost = new AtomicLong(0L);
     this.alertLost = new AtomicLong(0L);
     this.requestLost = new AtomicLong(0L);
     this.invalidLost = new AtomicLong(0L);
+    this.auditLost = new AtomicLong(0L);
   }
 
   private Callback setProducerCallback(AtomicLong lostCouter)
@@ -124,13 +129,12 @@ public class KafkaEmitter implements Emitter
     if (config.getRequestTopic() != null) {
       scheduler.schedule(this::sendRequestToKafka, sendInterval, TimeUnit.SECONDS);
     }
+    if (config.getAuditTopic() != null) {
+      scheduler.schedule(this::sendAuditToKafka, sendInterval, TimeUnit.SECONDS);
+    }
     scheduler.scheduleWithFixedDelay(() -> {
-      log.info(
-          "Message lost counter: metricLost=[%d], alertLost=[%d], requestLost=[%d], invalidLost=[%d]",
-          metricLost.get(),
-          alertLost.get(),
-          requestLost.get(),
-          invalidLost.get()
+      log.info("Message lost counter: metricLost=[%d], alertLost=[%d], requestLost=[%d], auditLost=[%d], invalidLost=[%d]",
+          metricLost.get(), alertLost.get(), requestLost.get(), auditLost.get(), invalidLost.get()
       );
     }, DEFAULT_SEND_LOST_INTERVAL_MINUTES, DEFAULT_SEND_LOST_INTERVAL_MINUTES, TimeUnit.MINUTES);
     log.info("Starting Kafka Emitter.");
@@ -149,6 +153,11 @@ public class KafkaEmitter implements Emitter
   private void sendRequestToKafka()
   {
     sendToKafka(config.getRequestTopic(), requestQueue, setProducerCallback(requestLost));
+  }
+
+  private void sendAuditToKafka()
+  {
+    sendToKafka(config.getAuditTopic(), auditQueue, setProducerCallback(auditLost));
   }
 
   private void sendToKafka(final String topic, MemoryBoundLinkedBlockingQueue<String> recordQueue, Callback callback)
@@ -195,6 +204,10 @@ public class KafkaEmitter implements Emitter
           if (config.getRequestTopic() == null || !requestQueue.offer(objectContainer)) {
             requestLost.incrementAndGet();
           }
+        } else if (event instanceof AuditEvent) {
+          if (config.getAuditTopic() == null || !auditQueue.offer(objectContainer)) {
+            auditLost.incrementAndGet();
+          }
         } else {
           invalidLost.incrementAndGet();
         }
@@ -237,5 +250,10 @@ public class KafkaEmitter implements Emitter
   public long getInvalidLostCount()
   {
     return invalidLost.get();
+  }
+
+  public long getAuditLostCount()
+  {
+    return auditLost.get();
   }
 }

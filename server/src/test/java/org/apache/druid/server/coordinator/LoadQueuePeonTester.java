@@ -27,7 +27,7 @@ import java.util.concurrent.ConcurrentSkipListSet;
 
 public class LoadQueuePeonTester extends CuratorLoadQueuePeon
 {
-  private final ConcurrentSkipListSet<DataSegment> segmentsToLoad = new ConcurrentSkipListSet<DataSegment>();
+  private final ConcurrentSkipListSet<DataSegment> segmentsToLoad = new ConcurrentSkipListSet<>();
 
   public LoadQueuePeonTester()
   {

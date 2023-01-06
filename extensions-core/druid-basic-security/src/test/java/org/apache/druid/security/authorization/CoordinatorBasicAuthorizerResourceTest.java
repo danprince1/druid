@@ -44,6 +44,7 @@ import org.apache.druid.security.basic.authorization.entity.BasicAuthorizerRoleS
 import org.apache.druid.security.basic.authorization.entity.BasicAuthorizerUser;
 import org.apache.druid.security.basic.authorization.entity.BasicAuthorizerUserFull;
 import org.apache.druid.security.basic.authorization.entity.BasicAuthorizerUserFullSimplifiedPermissions;
+import org.apache.druid.server.metrics.NoopServiceEmitter;
 import org.apache.druid.server.security.Action;
 import org.apache.druid.server.security.AuthValidator;
 import org.apache.druid.server.security.AuthorizerMapper;
@@ -77,6 +78,7 @@ public class CoordinatorBasicAuthorizerResourceTest
   private static final String AUTHORIZER_NAME = "test";
   private static final String AUTHORIZER_NAME2 = "test2";
   private static final String AUTHORIZER_NAME3 = "test3";
+  private static final String AUTHORIZER_NAME4 = "testAuthorizerWithGroupMappingPatternRegex";
 
   @Rule
   public ExpectedException expectedException = ExpectedException.none();
@@ -111,6 +113,8 @@ public class CoordinatorBasicAuthorizerResourceTest
                 null,
                 null,
                 null,
+                null,
+                new NoopServiceEmitter(),
                 null
             ),
             AUTHORIZER_NAME2,
@@ -122,6 +126,8 @@ public class CoordinatorBasicAuthorizerResourceTest
                 null,
                 null,
                 null,
+                null,
+                new NoopServiceEmitter(),
                 null
             ),
             AUTHORIZER_NAME3,
@@ -133,7 +139,22 @@ public class CoordinatorBasicAuthorizerResourceTest
                 "adminGroupMapping",
                 null,
                 null,
+                null,
+                new NoopServiceEmitter(),
                 null
+            ),
+            AUTHORIZER_NAME4,
+            new BasicRoleBasedAuthorizer(
+                null,
+                AUTHORIZER_NAME4,
+                null,
+                null,
+                "adminGroupMapping",
+                null,
+                null,
+                null,
+                new NoopServiceEmitter(),
+                "^CN=.*,OU=.*,OU=.*,DC=corp,DC=druid,DC=com$"
             )
         )
     );
@@ -405,6 +426,16 @@ public class CoordinatorBasicAuthorizerResourceTest
     response = resource.getGroupMapping(req, AUTHORIZER_NAME, "druidGroupMapping", null);
     Assert.assertEquals(400, response.getStatus());
     Assert.assertEquals(errorMapWithMsg("Group mapping [druidGroupMapping] does not exist."), response.getEntity());
+  }
+
+  @Test
+  public void testCreateGroupMappingGroupPatternRegex()
+  {
+    Response response = resource.createGroupMapping(req, AUTHORIZER_NAME4, "invalidGroupMapping", new BasicAuthorizerGroupMapping("invalidGroupMapping", "invalidGroupMapping", new HashSet<>()));
+    Assert.assertEquals(400, response.getStatus());
+
+    response = resource.createGroupMapping(req, AUTHORIZER_NAME, "validGroupMapping", new BasicAuthorizerGroupMapping("validGroupMapping", "CN=druid,OU=druid,OU=druid,DC=corp,DC=druid,DC=com", new HashSet<>()));
+    Assert.assertEquals(200, response.getStatus());
   }
 
   @Test

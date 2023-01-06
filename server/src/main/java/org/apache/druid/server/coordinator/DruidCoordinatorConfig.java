@@ -27,13 +27,25 @@ import org.skife.config.Default;
  */
 public abstract class DruidCoordinatorConfig
 {
+  @Config("druid.coordinator.dutiesRunnableExecutor.threadPoolSize")
+  @Default("1")
+  public abstract int getDutiesRunnableExecutorThreadPoolSize();
+
   @Config("druid.coordinator.startDelay")
   @Default("PT300s")
   public abstract Duration getCoordinatorStartDelay();
 
+  @Config("druid.coordinator.loadPrimaryReplicantSeparately")
+  @Default("false")
+  public abstract boolean isLoadPrimaryReplicantSeparately();
+
   @Config("druid.coordinator.period")
   @Default("PT60s")
   public abstract Duration getCoordinatorPeriod();
+
+  @Config("druid.coordinator.period.primaryReplicantLoaderPeriod")
+  @Default("PT60s")
+  public abstract Duration getCoordinatorPrimaryReplicantLoaderPeriod();
 
   @Config("druid.coordinator.period.indexingPeriod")
   @Default("PT1800s")
@@ -42,6 +54,10 @@ public abstract class DruidCoordinatorConfig
   @Config("druid.coordinator.period.metadataStoreManagementPeriod")
   @Default("PT1H")
   public abstract Duration getCoordinatorMetadataStoreManagementPeriod();
+
+  @Config("druid.coordinator.kill.on")
+  @Default("false")
+  public abstract boolean getCoordinatorKillOn();
 
   @Config("druid.coordinator.kill.period")
   @Default("P1D")
@@ -54,6 +70,10 @@ public abstract class DruidCoordinatorConfig
   @Config("druid.coordinator.kill.ignoreDurationToRetain")
   @Default("false")
   public abstract boolean getCoordinatorKillIgnoreDurationToRetain();
+
+  @Config("druid.coordinator.kill.bufferPeriod")
+  @Default("P30D")
+  public abstract Duration getCoordinatorKillBufferPeriod();
 
   @Config("druid.coordinator.kill.maxSegments")
   @Default("100")

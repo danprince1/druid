@@ -39,6 +39,7 @@ import org.junit.Test;
 import org.junit.experimental.runners.Enclosed;
 import org.junit.runner.RunWith;
 import org.mockito.Answers;
+import org.mockito.ArgumentMatchers;
 import org.mockito.Mock;
 import org.mockito.Mockito;
 import org.mockito.junit.MockitoJUnitRunner;
@@ -46,9 +47,6 @@ import org.mockito.junit.MockitoJUnitRunner;
 import java.util.Collections;
 import java.util.List;
 import java.util.Set;
-
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyString;
 
 /**
  */
@@ -90,23 +88,32 @@ public class KillUnusedSegmentsTest
       Mockito.doReturn(DURATION_TO_RETAIN).when(config).getCoordinatorKillDurationToRetain();
       Mockito.doReturn(INDEXING_PERIOD).when(config).getCoordinatorIndexingPeriod();
       Mockito.doReturn(MAX_SEGMENTS_TO_KILL).when(config).getCoordinatorKillMaxSegments();
+      Mockito.doReturn(Duration.parse("PT3154000000S")).when(config).getCoordinatorKillBufferPeriod();
       target = new KillUnusedSegments(segmentsMetadataManager, indexingServiceClient, config);
     }
+
     @Test
     public void testRunWihNoIntervalShouldNotKillAnySegments()
     {
       target.run(params);
       Mockito.verify(indexingServiceClient, Mockito.never())
-             .killUnusedSegments(anyString(), anyString(), any(Interval.class));
+             .killUnusedSegments(
+                 ArgumentMatchers.anyString(),
+                 ArgumentMatchers.anyString(),
+                 ArgumentMatchers.any(Interval.class));
     }
 
     @Test
     public void testRunWihSpecificDatasourceAndNoIntervalShouldNotKillAnySegments()
     {
-      Mockito.when(coordinatorDynamicConfig.getSpecificDataSourcesToKillUnusedSegmentsIn()).thenReturn(Collections.singleton("DS1"));
+      Mockito.when(coordinatorDynamicConfig.getSpecificDataSourcesToKillUnusedSegmentsIn())
+             .thenReturn(Collections.singleton("DS1"));
       target.run(params);
       Mockito.verify(indexingServiceClient, Mockito.never())
-             .killUnusedSegments(anyString(), anyString(), any(Interval.class));
+             .killUnusedSegments(
+                 ArgumentMatchers.anyString(),
+                 ArgumentMatchers.anyString(),
+                 ArgumentMatchers.any(Interval.class));
     }
   }
 
@@ -167,7 +174,8 @@ public class KillUnusedSegmentsTest
           segmentsMetadataManager.getUnusedSegmentIntervals(
               EasyMock.anyString(),
               EasyMock.anyObject(DateTime.class),
-              EasyMock.anyInt()
+              EasyMock.anyInt(),
+              EasyMock.anyObject(DateTime.class)
           )
       ).andReturn(segmentIntervals);
       EasyMock.replay(segmentsMetadataManager);
@@ -184,6 +192,7 @@ public class KillUnusedSegmentsTest
               .withCoordinatorKillMaxSegments(1000)
               .withLoadQueuePeonRepeatDelay(Duration.ZERO)
               .withCoordinatorKillIgnoreDurationToRetain(false)
+              .withCoordinatorKillBufferPeriod(Duration.parse("PT3154000000S"))
               .build()
       );
 
@@ -213,6 +222,7 @@ public class KillUnusedSegmentsTest
               .withCoordinatorKillMaxSegments(1000)
               .withLoadQueuePeonRepeatDelay(Duration.ZERO)
               .withCoordinatorKillIgnoreDurationToRetain(false)
+              .withCoordinatorKillBufferPeriod(Duration.parse("PT3154000000S"))
               .build()
       );
       Assert.assertEquals((Long) Duration.parse("PT86400S").getMillis(), unusedSegmentsKiller.getRetainDuration());
@@ -229,6 +239,7 @@ public class KillUnusedSegmentsTest
               .withCoordinatorKillMaxSegments(1000)
               .withLoadQueuePeonRepeatDelay(Duration.ZERO)
               .withCoordinatorKillIgnoreDurationToRetain(false)
+              .withCoordinatorKillBufferPeriod(Duration.parse("PT3154000000S"))
               .build()
       );
       Assert.assertEquals((Long) Duration.parse("PT-86400S").getMillis(), unusedSegmentsKiller.getRetainDuration());
@@ -254,6 +265,7 @@ public class KillUnusedSegmentsTest
               .withCoordinatorKillMaxSegments(1000)
               .withLoadQueuePeonRepeatDelay(Duration.ZERO)
               .withCoordinatorKillIgnoreDurationToRetain(true)
+              .withCoordinatorKillBufferPeriod(Duration.parse("PT3154000000S"))
               .build()
       );
       Assert.assertEquals(
@@ -273,6 +285,7 @@ public class KillUnusedSegmentsTest
               .withCoordinatorKillMaxSegments(1000)
               .withLoadQueuePeonRepeatDelay(Duration.ZERO)
               .withCoordinatorKillIgnoreDurationToRetain(false)
+              .withCoordinatorKillBufferPeriod(Duration.parse("PT3154000000S"))
               .build()
       );
 
@@ -291,6 +304,7 @@ public class KillUnusedSegmentsTest
               .withCoordinatorKillMaxSegments(1000)
               .withLoadQueuePeonRepeatDelay(Duration.ZERO)
               .withCoordinatorKillIgnoreDurationToRetain(false)
+              .withCoordinatorKillBufferPeriod(Duration.parse("PT3154000000S"))
               .build()
       );
       expectedTime = DateTimes.nowUtc().minus(Duration.parse("PT86400S").getMillis());

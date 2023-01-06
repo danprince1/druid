@@ -98,6 +98,7 @@ public class CoordinatorBasicAuthenticatorResourceTest
                 null,
                 null,
                 false,
+                null,
                 null
             ),
             AUTHENTICATOR_NAME2,
@@ -111,6 +112,7 @@ public class CoordinatorBasicAuthenticatorResourceTest
                 null,
                 null,
                 false,
+                null,
                 null
             ),
             AUTHENTICATOR_NAME_LDAP,
@@ -124,6 +126,7 @@ public class CoordinatorBasicAuthenticatorResourceTest
                 null,
                 null,
                 false,
+                null,
                 null
             )
         )
