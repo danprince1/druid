@@ -80,10 +80,12 @@ import javax.ws.rs.QueryParam;
 import javax.ws.rs.core.Context;
 import javax.ws.rs.core.MediaType;
 import javax.ws.rs.core.Response;
+
 import java.io.File;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -308,7 +310,7 @@ public class HadoopIndexTask extends HadoopTask implements ChatHandler
       }
 
       errorMsg = Throwables.getStackTraceAsString(effectiveException);
-      toolbox.getTaskReportFileWriter().write(getId(), getTaskCompletionReports());
+      toolbox.getTaskReportFileWriter().write(getId(), getTaskCompletionReports(Collections.emptyList()));
       return TaskStatus.failure(
           getId(),
           errorMsg
@@ -321,7 +323,6 @@ public class HadoopIndexTask extends HadoopTask implements ChatHandler
     }
   }
 
-  @SuppressWarnings("unchecked")
   private TaskStatus runInternal(TaskToolbox toolbox) throws Exception
   {
     boolean indexGeneratorJobAttempted = false;
@@ -376,7 +377,7 @@ public class HadoopIndexTask extends HadoopTask implements ChatHandler
         indexerSchema = determineConfigStatus.getSchema();
         if (indexerSchema == null) {
           errorMsg = determineConfigStatus.getErrorMsg();
-          toolbox.getTaskReportFileWriter().write(getId(), getTaskCompletionReports());
+          toolbox.getTaskReportFileWriter().write(getId(), getTaskCompletionReports(Collections.emptyList()));
           return TaskStatus.failure(
               getId(),
               errorMsg
@@ -491,11 +492,12 @@ public class HadoopIndexTask extends HadoopTask implements ChatHandler
           }
 
           ingestionState = IngestionState.COMPLETED;
-          toolbox.getTaskReportFileWriter().write(getId(), getTaskCompletionReports());
+          toolbox.getTaskReportFileWriter().write(
+              getId(), getTaskCompletionReports(indexerSchema.getDataSchema().getGranularitySpec().inputIntervals()));
           return TaskStatus.success(getId());
         } else {
           errorMsg = buildSegmentsStatus.getErrorMsg();
-          toolbox.getTaskReportFileWriter().write(getId(), getTaskCompletionReports());
+          toolbox.getTaskReportFileWriter().write(getId(), getTaskCompletionReports(Collections.emptyList()));
           return TaskStatus.failure(
               getId(),
               errorMsg
@@ -666,7 +668,7 @@ public class HadoopIndexTask extends HadoopTask implements ChatHandler
     return Response.ok(returnMap).build();
   }
 
-  private Map<String, TaskReport> getTaskCompletionReports()
+  private Map<String, TaskReport> getTaskCompletionReports(List<Interval> intervals)
   {
     return TaskReport.buildTaskReports(
         new IngestionStatsAndErrorsTaskReport(
@@ -677,7 +679,8 @@ public class HadoopIndexTask extends HadoopTask implements ChatHandler
                 getTaskCompletionRowStats(),
                 errorMsg,
                 segmentAvailabilityConfirmationCompleted,
-                segmentAvailabilityWaitTimeMs
+                segmentAvailabilityWaitTimeMs,
+                JodaUtils.condenseIntervals(intervals)
             )
         )
     );

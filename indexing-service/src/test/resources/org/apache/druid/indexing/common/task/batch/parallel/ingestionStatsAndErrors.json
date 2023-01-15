@@ -1,0 +1,26 @@
+{
+  "ingestionStatsAndErrors": {
+    "payload": {
+      "rowStats": {
+        "totals": {
+          "buildSegments": {
+            "processed": 1,
+            "processedWithError": 2,
+            "thrownAway": 3,
+            "unparseable": 4
+          }
+        }
+      },
+      "unparseableEvents": {
+        "buildSegments": [
+          {
+            "input": "one,two,three",
+            "errorType": "some_error_type",
+            "details": ["error details here"],
+            "timeOfExceptionMillis": 123
+          }
+        ]
+      }
+    }
+  }
+}
