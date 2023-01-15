@@ -492,8 +492,8 @@ public class HadoopIndexTask extends HadoopTask implements ChatHandler
           }
 
           ingestionState = IngestionState.COMPLETED;
-          toolbox.getTaskReportFileWriter().write(
-              getId(), getTaskCompletionReports(indexerSchema.getDataSchema().getGranularitySpec().inputIntervals()));
+          List<Interval> intervals = segments.stream().map(DataSegment::getInterval).collect(Collectors.toList());
+          toolbox.getTaskReportFileWriter().write(getId(), getTaskCompletionReports(intervals));
           return TaskStatus.success(getId());
         } else {
           errorMsg = buildSegmentsStatus.getErrorMsg();
