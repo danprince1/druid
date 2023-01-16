@@ -19,13 +19,17 @@
 
 package org.apache.druid.indexing.common.task;
 
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.base.Optional;
+import com.google.common.collect.ImmutableList;
 import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.ListenableFuture;
 import org.apache.druid.indexer.TaskStatus;
+import org.apache.druid.indexing.common.IngestionStatsAndErrorsTaskReportData;
 import org.apache.druid.indexing.common.SegmentCacheManagerFactory;
 import org.apache.druid.indexing.common.SingleFileTaskReportFileWriter;
+import org.apache.druid.indexing.common.TaskReport;
 import org.apache.druid.indexing.common.TaskToolbox;
 import org.apache.druid.indexing.common.TestUtils;
 import org.apache.druid.indexing.common.actions.SegmentInsertAction;
@@ -45,6 +49,7 @@ import org.apache.druid.indexing.overlord.TaskRunnerWorkItem;
 import org.apache.druid.indexing.overlord.TaskStorage;
 import org.apache.druid.indexing.overlord.autoscaling.ScalingStats;
 import org.apache.druid.java.util.common.ISE;
+import org.apache.druid.java.util.common.Intervals;
 import org.apache.druid.java.util.common.Pair;
 import org.apache.druid.java.util.common.StringUtils;
 import org.apache.druid.java.util.emitter.EmittingLogger;
@@ -70,10 +75,14 @@ import org.apache.druid.server.metrics.NoopServiceEmitter;
 import org.apache.druid.server.security.AuthTestUtils;
 import org.apache.druid.testing.InitializedNullHandlingTest;
 import org.apache.druid.timeline.DataSegment;
+import org.joda.time.Interval;
 import org.junit.After;
+import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.rules.TemporaryFolder;
+
+import javax.annotation.Nullable;
 
 import java.io.File;
 import java.io.IOException;
@@ -101,6 +110,7 @@ public abstract class IngestionTestBase extends InitializedNullHandlingTest
   private IndexerSQLMetadataStorageCoordinator storageCoordinator;
   private SegmentsMetadataManager segmentsMetadataManager;
   private TaskLockbox lockbox;
+  private File taskReportsFile;
 
   @Before
   public void setUpIngestionTestBase() throws IOException
@@ -130,6 +140,9 @@ public abstract class IngestionTestBase extends InitializedNullHandlingTest
     );
     lockbox = new TaskLockbox(taskStorage, storageCoordinator);
     segmentCacheManagerFactory = new SegmentCacheManagerFactory(getObjectMapper());
+    taskReportsFile = temporaryFolder.newFile(
+        StringUtils.format("ingestionTestBase-%s.json", System.currentTimeMillis())
+    );
   }
 
   @After
@@ -172,6 +185,11 @@ public abstract class IngestionTestBase extends InitializedNullHandlingTest
   public TaskStorage getTaskStorage()
   {
     return taskStorage;
+  }
+
+  public File getTaskReportsFile()
+  {
+    return this.taskReportsFile;
   }
 
   public SegmentCacheManagerFactory getSegmentCacheManagerFactory()
@@ -226,6 +244,57 @@ public abstract class IngestionTestBase extends InitializedNullHandlingTest
     return testUtils.getIndexMergerV9Factory();
   }
 
+  protected IngestionStatsAndErrorsTaskReportData getTaskReportData()
+  {
+    Map<String, TaskReport> taskReports = null;
+    try {
+      taskReports = objectMapper.readValue(
+          getTaskReportsFile(),
+          new TypeReference<Map<String, TaskReport>>()
+          {
+          }
+      );
+    }
+    catch (IOException e) {
+      Assert.fail("IOException when reading task reports");
+    }
+    return IngestionStatsAndErrorsTaskReportData.getPayloadFromTaskReports(
+        taskReports
+    );
+  }
+
+  protected void checkReportInterval(@Nullable Interval interval)
+  {
+    if (null == interval) {
+      assertReportIntervalsEmpty();
+    } else {
+      checkReportInterval(interval.toString());
+    }
+  }
+
+  protected void assertReportIntervalsEmpty()
+  {
+    Assert.assertTrue(getTaskReportData().getIngestedIntervals().isEmpty());
+  }
+
+  protected void checkReportIntervals(Collection<Interval> intervals)
+  {
+    Assert.assertEquals(ImmutableList.copyOf(intervals), getTaskReportData().getIngestedIntervals());
+  }
+
+  protected void checkReportInterval(@Nullable String interval)
+  {
+    if (null == interval) {
+      assertReportIntervalsEmpty();
+    } else {
+      IngestionStatsAndErrorsTaskReportData payload = getTaskReportData();
+      Assert.assertEquals(
+          ImmutableList.of(Intervals.of(interval)),
+          payload.getIngestedIntervals()
+      );
+    }
+  }
+
   public class TestLocalTaskActionClientFactory implements TaskActionClientFactory
   {
     @Override
@@ -265,7 +334,6 @@ public abstract class IngestionTestBase extends InitializedNullHandlingTest
   public class TestTaskRunner implements TaskRunner
   {
     private TestLocalTaskActionClient taskActionClient;
-    private File taskReportsFile;
 
     @Override
     public List<Pair<Task, ListenableFuture<TaskStatus>>> restore()
@@ -296,11 +364,6 @@ public abstract class IngestionTestBase extends InitializedNullHandlingTest
       return taskActionClient;
     }
 
-    public File getTaskReportsFile()
-    {
-      return taskReportsFile;
-    }
-
     public List<DataSegment> getPublishedSegments()
     {
       final List<DataSegment> segments = new ArrayList<>(taskActionClient.getPublishedSegments());
@@ -315,9 +378,6 @@ public abstract class IngestionTestBase extends InitializedNullHandlingTest
         lockbox.add(task);
         taskStorage.insert(task, TaskStatus.running(task.getId()));
         taskActionClient = createActionClient(task);
-        taskReportsFile = temporaryFolder.newFile(
-            StringUtils.format("ingestionTestBase-%s.json", System.currentTimeMillis())
-        );
 
         final TaskToolbox box = new TaskToolbox.Builder()
             .config(

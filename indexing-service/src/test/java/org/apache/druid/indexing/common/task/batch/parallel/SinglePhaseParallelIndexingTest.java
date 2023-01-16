@@ -64,6 +64,7 @@ import org.junit.runner.RunWith;
 import org.junit.runners.Parameterized;
 
 import javax.annotation.Nullable;
+
 import java.io.File;
 import java.io.IOException;
 import java.io.Writer;
@@ -97,6 +98,14 @@ public class SinglePhaseParallelIndexingTest extends AbstractParallelIndexSuperv
 
   private static final Interval INTERVAL_TO_INDEX = Intervals.of("2017-12/P1M");
   private static final String VALID_INPUT_SOURCE_FILTER = "test_*";
+  private static final List<Interval> INTERVALS_INGESTED_DAY = ImmutableList.of(
+      Intervals.of("2012-12-25/2012-12-26"),
+      Intervals.of("2017-12-24/2017-12-30")
+  );
+  private static final List<Interval> INTERVALS_INGESTED_MONTH = ImmutableList.of(
+      Intervals.of("2012-12-01/2013-01-01"),
+      Intervals.of("2017-12-01/2018-01-01")
+  );
 
   private final LockGranularity lockGranularity;
   private final boolean useInputFormatApi;
@@ -181,7 +190,8 @@ public class SinglePhaseParallelIndexingTest extends AbstractParallelIndexSuperv
       @Nullable Interval interval,
       Granularity segmentGranularity,
       boolean appendToExisting,
-      Collection<DataSegment> originalSegmentsIfAppend
+      Collection<DataSegment> originalSegmentsIfAppend,
+      List<Interval> expectedIntervals
   )
   {
     // The task could run differently between when appendToExisting is false and true even when this is an initial write
@@ -194,6 +204,7 @@ public class SinglePhaseParallelIndexingTest extends AbstractParallelIndexSuperv
         appendToExisting,
         originalSegmentsIfAppend
     );
+    checkReportIntervals(expectedIntervals);
     TaskContainer taskContainer = getIndexingServiceClient().getTaskContainer(task.getId());
     return (ParallelIndexSupervisorTask) taskContainer.getTask();
   }
@@ -201,21 +212,28 @@ public class SinglePhaseParallelIndexingTest extends AbstractParallelIndexSuperv
   private ParallelIndexSupervisorTask runOverwriteTask(
       @Nullable Interval interval,
       Granularity segmentGranularity,
-      LockGranularity actualLockGranularity
+      LockGranularity actualLockGranularity,
+      List<Interval> expectedIntervals
   )
   {
     final ParallelIndexSupervisorTask task = newTask(interval, segmentGranularity, false, true);
     task.addToContext(Tasks.FORCE_TIME_CHUNK_LOCK_KEY, lockGranularity == LockGranularity.TIME_CHUNK);
     Assert.assertEquals(TaskState.SUCCESS, getIndexingServiceClient().runAndWait(task).getStatusCode());
     assertShardSpecAfterOverwrite(task, actualLockGranularity);
+    checkReportIntervals(expectedIntervals);
     TaskContainer taskContainer = getIndexingServiceClient().getTaskContainer(task.getId());
     return (ParallelIndexSupervisorTask) taskContainer.getTask();
   }
 
-  private void testRunAndOverwrite(@Nullable Interval inputInterval, Granularity secondSegmentGranularity)
+  private void testRunAndOverwrite(
+      @Nullable Interval inputInterval,
+      Granularity secondSegmentGranularity,
+      List<Interval> expectedIntervals,
+      List<Interval> secondExpectedIntervals
+  )
   {
     // Ingest all data.
-    runTestTask(inputInterval, Granularities.DAY, false, Collections.emptyList());
+    runTestTask(inputInterval, Granularities.DAY, false, Collections.emptyList(), expectedIntervals);
 
     final Collection<DataSegment> allSegments = new HashSet<>(
         inputInterval == null
@@ -232,7 +250,7 @@ public class SinglePhaseParallelIndexingTest extends AbstractParallelIndexSuperv
                               ? lockGranularity
                               : LockGranularity.TIME_CHUNK;
     }
-    runOverwriteTask(inputInterval, secondSegmentGranularity, actualLockGranularity);
+    runOverwriteTask(inputInterval, secondSegmentGranularity, actualLockGranularity, secondExpectedIntervals);
 
     // Verify that the segment has been replaced.
     final Collection<DataSegment> newSegments =
@@ -314,14 +332,18 @@ public class SinglePhaseParallelIndexingTest extends AbstractParallelIndexSuperv
   @Test
   public void testWithoutInterval()
   {
-    testRunAndOverwrite(null, Granularities.DAY);
+    testRunAndOverwrite(null, Granularities.DAY, INTERVALS_INGESTED_DAY, INTERVALS_INGESTED_DAY);
   }
 
   @Test
   public void testRunInParallel()
   {
     // Ingest all data.
-    testRunAndOverwrite(Intervals.of("2017-12/P1M"), Granularities.DAY);
+    testRunAndOverwrite(
+        Intervals.of("2017-12/P1M"),
+        Granularities.DAY,
+        ImmutableList.of(INTERVALS_INGESTED_DAY.get(1)),
+        ImmutableList.of(INTERVALS_INGESTED_DAY.get(1)));
   }
 
   @Test
@@ -434,7 +456,8 @@ public class SinglePhaseParallelIndexingTest extends AbstractParallelIndexSuperv
         Intervals.of("2017-12/P1M"),
         Granularities.DAY,
         false,
-        Collections.emptyList()
+        Collections.emptyList(),
+        ImmutableList.of(INTERVALS_INGESTED_DAY.get(1))
     );
     Map<String, Object> actualReports = task.doGetLiveReports("full");
     Map<String, Object> expectedReports = buildExpectedTaskReportParallel(
@@ -468,14 +491,18 @@ public class SinglePhaseParallelIndexingTest extends AbstractParallelIndexSuperv
   @Test
   public void testWithoutIntervalWithDifferentSegmentGranularity()
   {
-    testRunAndOverwrite(null, Granularities.MONTH);
+    testRunAndOverwrite(null, Granularities.MONTH, INTERVALS_INGESTED_DAY, INTERVALS_INGESTED_MONTH);
   }
 
   @Test()
   public void testRunInParallelWithDifferentSegmentGranularity()
   {
     // Ingest all data.
-    testRunAndOverwrite(Intervals.of("2017-12/P1M"), Granularities.MONTH);
+    testRunAndOverwrite(
+        Intervals.of("2017-12/P1M"),
+        Granularities.MONTH,
+        ImmutableList.of(INTERVALS_INGESTED_DAY.get(1)),
+        ImmutableList.of(INTERVALS_INGESTED_MONTH.get(1)));
   }
 
   @Test
@@ -598,11 +625,22 @@ public class SinglePhaseParallelIndexingTest extends AbstractParallelIndexSuperv
   public void testAppendToExisting()
   {
     final Interval interval = Intervals.of("2017-12/P1M");
-    runTestTask(interval, Granularities.DAY, true, Collections.emptyList());
+    runTestTask(
+        interval,
+        Granularities.DAY,
+        true,
+        Collections.emptyList(),
+        ImmutableList.of(INTERVALS_INGESTED_DAY.get(1))
+    );
     final Collection<DataSegment> oldSegments =
         getStorageCoordinator().retrieveUsedSegmentsForInterval("dataSource", interval, Segments.ONLY_VISIBLE);
 
-    runTestTask(interval, Granularities.DAY, true, oldSegments);
+    runTestTask(interval,
+                Granularities.DAY,
+                true,
+                oldSegments,
+                ImmutableList.of(INTERVALS_INGESTED_DAY.get(1))
+    );
     final Collection<DataSegment> newSegments =
         getStorageCoordinator().retrieveUsedSegmentsForInterval("dataSource", interval, Segments.ONLY_VISIBLE);
     Assert.assertTrue(newSegments.containsAll(oldSegments));
@@ -650,7 +688,11 @@ public class SinglePhaseParallelIndexingTest extends AbstractParallelIndexSuperv
   public void testOverwriteAndAppend()
   {
     final Interval interval = Intervals.of("2017-12/P1M");
-    testRunAndOverwrite(interval, Granularities.DAY);
+    testRunAndOverwrite(
+        interval,
+        Granularities.DAY,
+        ImmutableList.of(INTERVALS_INGESTED_DAY.get(1)),
+        ImmutableList.of(INTERVALS_INGESTED_DAY.get(1)));
     final Collection<DataSegment> beforeAppendSegments =
         getStorageCoordinator().retrieveUsedSegmentsForInterval("dataSource", interval, Segments.ONLY_VISIBLE);
 
@@ -658,7 +700,8 @@ public class SinglePhaseParallelIndexingTest extends AbstractParallelIndexSuperv
         interval,
         Granularities.DAY,
         true,
-        beforeAppendSegments
+        beforeAppendSegments,
+        ImmutableList.of(INTERVALS_INGESTED_DAY.get(1))
     );
     final Collection<DataSegment> afterAppendSegments =
         getStorageCoordinator().retrieveUsedSegmentsForInterval("dataSource", interval, Segments.ONLY_VISIBLE);
