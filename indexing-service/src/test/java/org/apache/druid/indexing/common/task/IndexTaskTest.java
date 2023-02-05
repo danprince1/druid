@@ -19,7 +19,6 @@
 
 package org.apache.druid.indexing.common.task;
 
-import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -48,7 +47,6 @@ import org.apache.druid.indexer.partitions.PartitionsSpec;
 import org.apache.druid.indexer.partitions.SingleDimensionPartitionsSpec;
 import org.apache.druid.indexing.common.IngestionStatsAndErrorsTaskReportData;
 import org.apache.druid.indexing.common.LockGranularity;
-import org.apache.druid.indexing.common.TaskReport;
 import org.apache.druid.indexing.common.TaskToolbox;
 import org.apache.druid.indexing.common.actions.SegmentAllocateAction;
 import org.apache.druid.indexing.common.task.IndexTask.IndexIOConfig;
@@ -114,6 +112,7 @@ import org.junit.runner.RunWith;
 import org.junit.runners.Parameterized;
 
 import javax.annotation.Nullable;
+
 import java.io.BufferedWriter;
 import java.io.File;
 import java.io.IOException;
@@ -132,12 +131,14 @@ import java.util.concurrent.TimeUnit;
 @RunWith(Parameterized.class)
 public class IndexTaskTest extends IngestionTestBase
 {
+  public static final String ONE_DAY_INTERVAL = "2014-01-01T00:00:00Z/2014-01-02T00:00:00Z";
   @Rule
   public TemporaryFolder temporaryFolder = new TemporaryFolder();
 
   @Rule
   public ExpectedException expectedException = ExpectedException.none();
 
+  private static final String DEFAULT_INTERVAL = "2014/2015";
   private static final String DATASOURCE = "test";
   private static final TimestampSpec DEFAULT_TIMESTAMP_SPEC = new TimestampSpec("ts", "auto", null);
   private static final DimensionsSpec DEFAULT_DIMENSIONS_SPEC = new DimensionsSpec(
@@ -264,6 +265,7 @@ public class IndexTaskTest extends IngestionTestBase
     Assert.assertEquals(1, segments.size());
     Assert.assertEquals(ImmutableList.of("ts", "dim", "valDim"), segments.get(0).getDimensions());
     Assert.assertEquals(ImmutableList.of("valMet"), segments.get(0).getMetrics());
+    checkReportInterval("2014-01-01T00:00:00.000Z/2014-01-02T00:00:00.000Z");
   }
 
   @Test
@@ -320,6 +322,7 @@ public class IndexTaskTest extends IngestionTestBase
     // only empty string dimensions are ignored currently
     Assert.assertEquals(ImmutableList.of("ts", "valDim"), segments.get(0).getDimensions());
     Assert.assertEquals(ImmutableList.of("valMet"), segments.get(0).getMetrics());
+    checkReportInterval("2014-01-01T00:00:00.000Z/2014-01-02T00:00:00.000Z");
   }
 
   @Test
@@ -375,6 +378,7 @@ public class IndexTaskTest extends IngestionTestBase
         HashPartitionFunction.MURMUR3_32_ABS,
         ((HashBasedNumberedShardSpec) segments.get(1).getShardSpec()).getPartitionFunction()
     );
+    checkReportInterval("2014-01-01/2014-01-02");
   }
 
   @Test
@@ -458,6 +462,7 @@ public class IndexTaskTest extends IngestionTestBase
 
     final List<DataSegment> segments = runSuccessfulTask(indexTask);
 
+    checkReportInterval(ONE_DAY_INTERVAL);
     Assert.assertEquals(1, segments.size());
     DataSegment segment = segments.get(0);
     final File segmentFile = segmentCacheManager.getSegmentFiles(segment);
@@ -550,6 +555,7 @@ public class IndexTaskTest extends IngestionTestBase
     final List<DataSegment> segments = runSuccessfulTask(indexTask);
 
     Assert.assertEquals(1, segments.size());
+    checkReportInterval("2014-01-01/2014-01-02");
   }
 
   @Test
@@ -586,6 +592,7 @@ public class IndexTaskTest extends IngestionTestBase
     final List<DataSegment> segments = runSuccessfulTask(indexTask);
 
     Assert.assertEquals(1, segments.size());
+    checkReportInterval("2014-01-01T08:00:00Z/2014-01-01T09:00:00Z");
   }
 
   @Test
@@ -627,6 +634,7 @@ public class IndexTaskTest extends IngestionTestBase
         HashPartitionFunction.MURMUR3_32_ABS,
         ((HashBasedNumberedShardSpec) segments.get(0).getShardSpec()).getPartitionFunction()
     );
+    checkReportInterval(ONE_DAY_INTERVAL);
   }
 
   @Test
@@ -670,6 +678,7 @@ public class IndexTaskTest extends IngestionTestBase
         HashPartitionFunction.MURMUR3_32_ABS,
         ((HashBasedNumberedShardSpec) segments.get(0).getShardSpec()).getPartitionFunction()
     );
+    checkReportInterval(ONE_DAY_INTERVAL);
   }
 
   @Test
@@ -701,6 +710,7 @@ public class IndexTaskTest extends IngestionTestBase
 
     final List<DataSegment> segments = runSuccessfulTask(indexTask);
 
+    checkReportInterval(ONE_DAY_INTERVAL);
     Assert.assertEquals(2, segments.size());
 
     for (DataSegment segment : segments) {
@@ -788,6 +798,7 @@ public class IndexTaskTest extends IngestionTestBase
     Assert.assertEquals(Intervals.of("2014/P1D"), segments.get(1).getInterval());
     Assert.assertEquals(NumberedShardSpec.class, segments.get(1).getShardSpec().getClass());
     Assert.assertEquals(1, segments.get(1).getShardSpec().getPartitionNum());
+    checkReportInterval(ONE_DAY_INTERVAL);
   }
 
   @Test
@@ -839,6 +850,7 @@ public class IndexTaskTest extends IngestionTestBase
     Assert.assertEquals(Intervals.of("2014-01-01T02/PT1H"), segments.get(2).getInterval());
     Assert.assertEquals(HashBasedNumberedShardSpec.class, segments.get(2).getShardSpec().getClass());
     Assert.assertEquals(0, segments.get(2).getShardSpec().getPartitionNum());
+    checkReportInterval("2014-01-01T00:00:00Z/2014-01-01T03:00:00Z");
   }
 
   @Test
@@ -858,7 +870,8 @@ public class IndexTaskTest extends IngestionTestBase
     expectedException.expectMessage(
         "GranularitySpec's intervals cannot be empty for replace."
     );
-    IndexTask indexTask = new IndexTask(
+    //noinspection ResultOfObjectAllocationIgnored
+    new IndexTask(
         null,
         null,
         createDefaultIngestionSpec(
@@ -934,6 +947,7 @@ public class IndexTaskTest extends IngestionTestBase
     Assert.assertEquals(Collections.singletonList("d"), segments.get(0).getDimensions());
     Assert.assertEquals(Collections.singletonList("val"), segments.get(0).getMetrics());
     Assert.assertEquals(Intervals.of("2014/P1D"), segments.get(0).getInterval());
+    checkReportInterval(ONE_DAY_INTERVAL);
   }
 
   @Test
@@ -992,6 +1006,7 @@ public class IndexTaskTest extends IngestionTestBase
     Assert.assertEquals(Collections.singletonList("d"), segments.get(0).getDimensions());
     Assert.assertEquals(Collections.singletonList("val"), segments.get(0).getMetrics());
     Assert.assertEquals(Intervals.of("2014/P1D"), segments.get(0).getInterval());
+    checkReportInterval(ONE_DAY_INTERVAL);
   }
 
   @Test
@@ -1045,6 +1060,7 @@ public class IndexTaskTest extends IngestionTestBase
       Assert.assertEquals(NumberedShardSpec.class, segment.getShardSpec().getClass());
       Assert.assertEquals(expectedPartitionNum, segment.getShardSpec().getPartitionNum());
     }
+    checkReportInterval("2014-01-01T00:00:00Z/2014-01-01T03:00:00Z");
   }
 
   @Test
@@ -1088,6 +1104,7 @@ public class IndexTaskTest extends IngestionTestBase
       Assert.assertTrue(segment.getShardSpec().getClass().equals(HashBasedNumberedShardSpec.class));
       Assert.assertEquals(i, segment.getShardSpec().getPartitionNum());
     }
+    checkReportInterval(ONE_DAY_INTERVAL);
   }
 
   @Test
@@ -1131,6 +1148,7 @@ public class IndexTaskTest extends IngestionTestBase
       Assert.assertEquals(NumberedShardSpec.class, segment.getShardSpec().getClass());
       Assert.assertEquals(i, segment.getShardSpec().getPartitionNum());
     }
+    checkReportInterval(ONE_DAY_INTERVAL);
   }
 
   @Test
@@ -1450,6 +1468,7 @@ public class IndexTaskTest extends IngestionTestBase
     Assert.assertEquals(Collections.singletonList("d"), segments.get(0).getDimensions());
     Assert.assertEquals(Collections.singletonList("val"), segments.get(0).getMetrics());
     Assert.assertEquals(Intervals.of("2014/P1D"), segments.get(0).getInterval());
+    checkReportInterval(ONE_DAY_INTERVAL);
   }
 
   @Test
@@ -1516,6 +1535,7 @@ public class IndexTaskTest extends IngestionTestBase
     TaskStatus status = runTask(indexTask).lhs;
     Assert.assertEquals(TaskState.FAILED, status.getStatusCode());
     checkTaskStatusErrorMsgForParseExceptionsExceeded(status);
+    assertReportIntervalsEmpty();
 
     IngestionStatsAndErrorsTaskReportData reportData = getTaskReportData();
 
@@ -1525,6 +1545,7 @@ public class IndexTaskTest extends IngestionTestBase
 
     List<String> expectedInputs = ImmutableList.of("{time=unparseable, d=a, val=1}");
     Assert.assertEquals(expectedInputs, parseExceptionReport.getInputs());
+    Assert.assertEquals(0, reportData.getIngestedIntervals().size());
   }
 
   @Test
@@ -1731,6 +1752,7 @@ public class IndexTaskTest extends IngestionTestBase
         "{time=unparseable, dim=a, dimLong=2, dimFloat=3.0, val=1}"
     );
     Assert.assertEquals(expectedInputs, parseExceptionReport.getInputs());
+    checkReportInterval(ONE_DAY_INTERVAL);
   }
 
   @Test
@@ -1844,6 +1866,7 @@ public class IndexTaskTest extends IngestionTestBase
     TaskStatus status = runTask(indexTask).lhs;
     Assert.assertEquals(TaskState.FAILED, status.getStatusCode());
     checkTaskStatusErrorMsgForParseExceptionsExceeded(status);
+    assertReportIntervalsEmpty();
 
     IngestionStatsAndErrorsTaskReportData reportData = getTaskReportData();
 
@@ -1878,6 +1901,7 @@ public class IndexTaskTest extends IngestionTestBase
         "{time=unparseable, dim=a, dimLong=2, dimFloat=3.0, val=1}"
     );
     Assert.assertEquals(expectedInputs, parseExceptionReport.getInputs());
+    Assert.assertEquals(0, reportData.getIngestedIntervals().size());
   }
 
   @Test
@@ -1982,6 +2006,7 @@ public class IndexTaskTest extends IngestionTestBase
     TaskStatus status = runTask(indexTask).lhs;
     Assert.assertEquals(TaskState.FAILED, status.getStatusCode());
     checkTaskStatusErrorMsgForParseExceptionsExceeded(status);
+    assertReportIntervalsEmpty();
 
     IngestionStatsAndErrorsTaskReportData reportData = getTaskReportData();
 
@@ -2016,6 +2041,7 @@ public class IndexTaskTest extends IngestionTestBase
         "{time=unparseable, dim=a, dimLong=2, dimFloat=3.0, val=1}"
     );
     Assert.assertEquals(expectedInputs, parseExceptionReport.getInputs());
+    Assert.assertEquals(0, reportData.getIngestedIntervals().size());
   }
 
   @Test
@@ -2103,6 +2129,7 @@ public class IndexTaskTest extends IngestionTestBase
       Assert.assertEquals(Collections.singletonList("val"), segment.getMetrics());
       Assert.assertEquals(Intervals.of("2014/P1D"), segment.getInterval());
     }
+    checkReportInterval(ONE_DAY_INTERVAL);
   }
 
   @Test
@@ -2166,6 +2193,7 @@ public class IndexTaskTest extends IngestionTestBase
 
     TaskStatus status = runTask(indexTask).lhs;
     Assert.assertEquals(TaskState.FAILED, status.getStatusCode());
+    assertReportIntervalsEmpty();
 
     checkTaskStatusErrorMsgForParseExceptionsExceeded(status);
 
@@ -2179,6 +2207,7 @@ public class IndexTaskTest extends IngestionTestBase
         "{column_1=2014-01-01T00:00:10Z, column_2=a, column_3=1}"
     );
     Assert.assertEquals(expectedInputs, parseExceptionReport.getInputs());
+    Assert.assertEquals(0, reportData.getIngestedIntervals().size());
   }
 
   @Test
@@ -2242,6 +2271,7 @@ public class IndexTaskTest extends IngestionTestBase
           }
         }
       }
+      checkReportInterval("2014-01-01/2014-01-02");
     }
   }
 
@@ -2289,6 +2319,7 @@ public class IndexTaskTest extends IngestionTestBase
         Assert.assertEquals(NumberedShardSpec.class, segment.getShardSpec().getClass());
         Assert.assertEquals(j, segment.getShardSpec().getPartitionNum());
       }
+      checkReportInterval(expectedInterval.toString());
     }
   }
 
@@ -2315,6 +2346,8 @@ public class IndexTaskTest extends IngestionTestBase
         "partitionsSpec[org.apache.druid.indexer.partitions.SingleDimensionPartitionsSpec] is not supported"
     );
     task.isReady(createActionClient(task));
+    IngestionStatsAndErrorsTaskReportData reportData = getTaskReportData();
+    Assert.assertEquals(0, reportData.getIngestedIntervals().size());
   }
 
   @Test
@@ -2358,6 +2391,7 @@ public class IndexTaskTest extends IngestionTestBase
     for (DataSegment segment : usedSegmentsBeforeOverwrite) {
       Assert.assertTrue(Granularities.YEAR.isAligned(segment.getInterval()));
     }
+    checkReportInterval("2014-01-01/2015-01-01");
 
     indexTask = new IndexTask(
         null,
@@ -2399,6 +2433,11 @@ public class IndexTaskTest extends IngestionTestBase
     }
     Assert.assertEquals(1, yearSegmentFound);
     Assert.assertEquals(3, minuteSegmentFound);
+    checkReportIntervals(ImmutableList.of(
+        Intervals.of("2014-01-01T00:00:00.000Z/2014-01-01T00:01:00.000Z"),
+        Intervals.of("2014-01-01T01:00:00.000Z/2014-01-01T01:01:00.000Z"),
+        Intervals.of("2014-01-01T02:00:00.000Z/2014-01-01T02:01:00.000Z")
+    ));
   }
 
   @Test
@@ -2442,6 +2481,7 @@ public class IndexTaskTest extends IngestionTestBase
     for (DataSegment segment : usedSegmentsBeforeOverwrite) {
       Assert.assertTrue(Granularities.DAY.isAligned(segment.getInterval()));
     }
+    checkReportInterval(ONE_DAY_INTERVAL);
 
     indexTask = new IndexTask(
         null,
@@ -2491,6 +2531,7 @@ public class IndexTaskTest extends IngestionTestBase
     Assert.assertEquals(1, hourSegmentFound);
     Assert.assertEquals(2, segmentFound);
     Assert.assertEquals(0, tombstonesFound);
+    checkReportInterval("2014-01-01T01:00:00Z/2014-01-01T02:00:00Z");
   }
 
   @Test
@@ -2534,6 +2575,7 @@ public class IndexTaskTest extends IngestionTestBase
     for (DataSegment segment : usedSegmentsBeforeOverwrite) {
       Assert.assertTrue(Granularities.DAY.isAligned(segment.getInterval()));
     }
+    checkReportInterval(ONE_DAY_INTERVAL);
 
     indexTask = new IndexTask(
         null,
@@ -2569,6 +2611,7 @@ public class IndexTaskTest extends IngestionTestBase
         Assert.assertTrue(Granularities.HOUR.isAligned(segment.getInterval()));
       }
     }
+    checkReportInterval("2014-01-01T00:00:00.000Z/2014-01-01T03:00:00.000Z");
   }
 
   @Test
@@ -2612,6 +2655,7 @@ public class IndexTaskTest extends IngestionTestBase
     for (DataSegment segment : usedSegmentsBeforeOverwrite) {
       Assert.assertTrue(Granularities.DAY.isAligned(segment.getInterval()));
     }
+    checkReportInterval("2014-03-01/2014-03-02");
 
     // create new data but with an ingestion interval appropriate to filter it all out so that only tombstones
     // are created:
@@ -2647,6 +2691,7 @@ public class IndexTaskTest extends IngestionTestBase
 
     Assert.assertEquals(1, segments.size()); // one tombstone
     Assert.assertTrue(segments.get(0).isTombstone());
+    assertReportIntervalsEmpty();
   }
 
  
@@ -2771,19 +2816,6 @@ public class IndexTaskTest extends IngestionTestBase
     );
   }
 
-  private IngestionStatsAndErrorsTaskReportData getTaskReportData() throws IOException
-  {
-    Map<String, TaskReport> taskReports = jsonMapper.readValue(
-        taskRunner.getTaskReportsFile(),
-        new TypeReference<Map<String, TaskReport>>()
-        {
-        }
-    );
-    return IngestionStatsAndErrorsTaskReportData.getPayloadFromTaskReports(
-        taskReports
-    );
-  }
-
   private IndexIngestionSpec createDefaultIngestionSpec(
       ObjectMapper objectMapper,
       File baseDir,
@@ -2902,7 +2934,7 @@ public class IndexTaskTest extends IngestionTestBase
               granularitySpec != null ? granularitySpec : new UniformGranularitySpec(
                   Granularities.DAY,
                   Granularities.MINUTE,
-                  Collections.singletonList(Intervals.of("2014/2015"))
+                  Collections.singletonList(Intervals.of(DEFAULT_INTERVAL))
               ),
               transformSpec
           ),
@@ -2932,7 +2964,7 @@ public class IndexTaskTest extends IngestionTestBase
               granularitySpec != null ? granularitySpec : new UniformGranularitySpec(
                   Granularities.DAY,
                   Granularities.MINUTE,
-                  Collections.singletonList(Intervals.of("2014/2015"))
+                  Collections.singletonList(Intervals.of(DEFAULT_INTERVAL))
               ),
               transformSpec,
               objectMapper
